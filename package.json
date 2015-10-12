@@ -4,7 +4,8 @@
   "description": "A mongoose plugin for transaction-like semantics between multiple documents.",
   "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "test": "tsc && jasmine"
   },
   "repository": {
     "type": "git",
@@ -25,6 +26,9 @@
     "mongoose": "^4.1.9"
   },
   "dependencies": {
-    "lodash": "^3.10.1"
+    "bluebird": "^2.10.2",
+    "debug": "^2.2.0",
+    "lodash": "^3.10.1",
+    "source-map-support": "^0.3.2"
   }
 }
