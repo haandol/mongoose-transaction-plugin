@@ -14,7 +14,7 @@ export interface TxDocument extends mongoose.Document {
   //__new?: boolean;
 }
 
-export default function plugin(schema: mongoose.Schema, options?: Object) {
+export function plugin(schema: mongoose.Schema, options?: Object) {
   schema.add({
     __t: { type: mongoose.Schema.Types.ObjectId },
     //__new: { type: Boolean, default: true }

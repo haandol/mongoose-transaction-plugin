@@ -3,7 +3,7 @@ import 'source-map-support/register'
 import * as mongoose from 'mongoose';
 import * as Promise from 'bluebird';
 import * as _debug from 'debug';
-import plugin, { Transaction } from '../index';
+import { plugin, Transaction } from '../index';
 
 interface ITestPlayer extends mongoose.Document {
   name: string;
