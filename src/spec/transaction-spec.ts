@@ -1,9 +1,9 @@
-/// <reference path="../../typings/tsd.d.ts" />
 import 'source-map-support/register'
 import * as mongoose from 'mongoose';
 import * as Promise from 'bluebird';
 import * as _debug from 'debug';
-import { plugin, Transaction } from '../index';
+import { plugin } from '../plugin';
+import { Transaction } from '../transaction';
 
 interface ITestPlayer extends mongoose.Document {
   name: string;

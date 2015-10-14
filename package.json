@@ -3,10 +3,11 @@
   "version": "0.0.3",
   "description": "A mongoose plugin for transaction-like semantics between multiple documents.",
   "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
   "scripts": {
-    "postinstall": "tsc",
-    "build": "tsc",
-    "test": "tsc && jasmine"
+    "postinstall": "tsc -p $(pwd)",
+    "build": "tsc -p $(pwd)",
+    "test": "tsc -p $(pwd) && jasmine"
   },
   "repository": {
     "type": "git",
@@ -23,13 +24,11 @@
     "url": "https://github.com/wokim/mongoose-transaction-plugin/issues"
   },
   "homepage": "https://github.com/wokim/mongoose-transaction-plugin#readme",
-  "devDependencies": {
-    "mongoose": "^4.1.9"
-  },
   "dependencies": {
     "bluebird": "^2.10.2",
     "debug": "^2.2.0",
     "lodash": "^3.10.1",
+    "mongoose": "^4.1.11",
     "source-map-support": "^0.3.2"
   }
 }
