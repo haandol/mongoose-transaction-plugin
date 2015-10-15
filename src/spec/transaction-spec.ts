@@ -26,6 +26,7 @@ var TestData = conn.model<ITestData>('TestData', testDataSchema);
 
 describe('transaction' ,() => {
   beforeAll(done => {
+    Transaction.initialize(conn);
     let testPlayer1 = new TestPlayer({ name: 'name' });
     let testData1 = new TestData({ money: 0 });
     let testPlayer2 = new TestPlayer({ name: 'wokim' });
@@ -46,7 +47,7 @@ describe('transaction' ,() => {
   });
 
   it('could commit two documents in same transaction', done => {
-    let transaction = new Transaction(conn);
+    let transaction = new Transaction();
     transaction.begin().then(() => {
       return Promise.props({
         testPlayer: transaction.findOne(TestPlayer, { name: 'wokim' }, { _id: 1, name: 1 }),

@@ -12,8 +12,10 @@ interface IHistory {
   col: string;
   // document's object id
   oid: mongoose.Types.ObjectId;
-  // update query string.
+  // insert, update, remove
   op: string;
+  // update query string.
+  query: string;
 }
 
 interface ITransaction extends mongoose.Document {
@@ -23,54 +25,58 @@ interface ITransaction extends mongoose.Document {
 
 export class Transaction extends events.EventEmitter {
   public static TRANSACTION_EXPIRE_THRESHOLD = 60 * 1000;
+  private static model: mongoose.Model<ITransaction>;
 
-  private Transaction: mongoose.Model<ITransaction>;
   private transaction: ITransaction;
-  private participants: mongoose.Document[] = [];
+  private participants: { op: string; doc: mongoose.Document }[] = [];
 
-  constructor(connection: mongoose.Connection) {
-    super();
+  public static initialize(connection: mongoose.Connection) {
+    if (this.model) return;
 
     let historySchema = new mongoose.Schema({
       col: { type: String, required: true },
       oid: { type: mongoose.Schema.Types.ObjectId, required: true },
-      op: { type: String, required: true }
+      op: { type: String, required: true },
+      query: { type: String, required: true }
     });
 
     let transactionSchema = new mongoose.Schema({
       history: [historySchema],
       state: { type: String, required: true, default: 'init' }
     });
-    this.Transaction = connection.model<ITransaction>('Transaction', transactionSchema);
+    this.model = connection.model<ITransaction>('Transaction', transactionSchema);
   }
 
   public begin(): Promise<void> {
-    if (this.transaction) return Promise.reject<void>(new Error('Transaction has already been started'));
+    return Promise.try(() => {
+      if (!Transaction.model) throw new Error('Not initialized exception');
+      if (this.transaction) throw new Error('Transaction has already been started');
 
-    let transaction = new this.Transaction();
-    return Promise.resolve(transaction.save<ITransaction>()).then(doc => {
-      this.transaction = <any>doc;
-      debug('transaction created: %o', doc);
+      let transaction = new Transaction.model();
+      // TODO: should be fixed mongoose.d.ts
+      return Promise.resolve(transaction.save<ITransaction>()).then((doc) => {
+        this.transaction = <any>doc;
+        debug('transaction created: %o', doc);
+      });
     });
   }
 
   public cancel(): Promise<void> {
-    if (!this.transaction) return Promise.reject<void>(new Error('Could not find any transaction'));
-    if (this.transaction.state && this.transaction.state !== 'init') return Promise.reject<void>(new Error('Invalid state: ' + this.transaction.state));
+    if (!this.transaction) return Promise.resolve();
+    return Promise.try(() => {
+      if (this.transaction.state && this.transaction.state !== 'init') return;
 
-    return Promise.resolve(this.transaction.remove()).then(() => {
-      return Promise.all(this.participants.map(participant => {
-        // TODO: Promise.defer is deprecated
-        let deferred = Promise.defer<void>();
-        participant.update({$unset: {__t: ''}}, {}, (err, affrectedRows, raw) => {
-          if (err) return deferred.reject(err);
-          if (affrectedRows !== 1) debug('[WARNING] unlock failed');
-          return deferred.resolve();
+      return Promise.resolve(this.transaction.remove()).then(() => {
+        return Promise.each(this.participants, participant => {
+          // TODO: Promise.defer is deprecated
+          // TODO: should be fixed mongoose.d.ts
+          if (participant.doc.isNew) return participant.doc['__t'] = undefined;
+          return Promise.resolve(participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec());
+        }).catch(err => {
+          debug('[warning] removing __t has been failed');
         });
-        return deferred.promise;
-      }));
+      });
     }).then(() => {
-      debug('transaction cancelled');
       this.transaction = undefined;
       this.participants = [];
     });
@@ -80,56 +86,91 @@ export class Transaction extends events.EventEmitter {
     if (!this.transaction) return Promise.resolve();
 
     return Promise.all(this.participants.map(participant => {
-      // TODO: Promise.defer is deprecated
-      let deferred = Promise.defer<void>();
-      participant.validate(err => {
-        if (err) return deferred.reject(err);
-        debug('delta: %o', (<any>participant).$__delta());
+      // TODO: should be fixed mongoose.d.ts
+      return Promise.resolve(participant.doc.validate(undefined)).then(() => {
+        debug('delta: %o', (<any>participant.doc).$__delta());
+        // TODO: 쿼리 제대로 만들기
+        let query: string;
+        if (participant.op === 'update') {
+          query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
+        } else if (participant.op === 'remove') {
+          query = JSON.stringify({ _id: '' });
+        } else if (participant.op === 'insert') {
+          query = JSON.stringify({});
+        }
         this.transaction.history.push({
-          col: (<any>participant).collection.name,
-          oid: participant._id,
-          op: JSON.stringify(((<any>participant).$__delta() || [null, {}])[1])
+          col: (<any>participant.doc).collection.name,
+          oid: participant.doc._id,
+          op: participant.op,
+          query: query
         });
-        return deferred.resolve();
       });
-      return deferred.promise;
     })).then(() => {
       debug('history generated: %o', this.transaction.history);
       this.transaction.state = 'pending';
-      return this.transaction.save<ITransaction>();
+      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
+        this.transaction.state = 'init';
+        throw err;
+      });
     }).then(doc => {
       this.transaction = <any>doc;
       debug('apply participants\' changes');
-      return Promise.map(this.participants, participant => participant.save());
+      return Promise.map(this.participants, participant => {
+        if (participant.op === 'remove') return participant.doc.remove();
+        else return participant.doc.save();
+      }).catch(err => {
+        // 여기서부터는 무조껀 성공해야 한다
+        // 유저한테 에러를 던져야 할까? 언젠가는 처리될텐데...?
+        // eventually consistency는 보장된다
+        debug('실제 저장은 다 못했지만 언젠가 이 트랜젝션은 처리될 것이다', err);
+        return;
+      });
     }).then(() => {
-      debug('change state from (init) to (committed)');
+      debug('change state from (pending) to (committed)');
       this.transaction.state = 'committed';
-      return this.transaction.save<ITransaction>();
+      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
+        debug('트랜젝션은 모두 처리되었지만 상태저장에 실패했을 뿐');
+        return;
+      });
     }).then(doc => {
       debug('transaction committed', doc);
       this.transaction = undefined;
       this.participants = [];
-    }).catch(err => {
+    })/*.catch(err => {
+      if (this.transaction.state !== 'init') throw err;
       return this.cancel().then(() => { throw err; });
-    });
+    })*/;
   }
 
-  public add(doc: mongoose.Document) {
-    // TODO: implements
+  // 생성될 document를 transaction에 참가시킴
+  public insertDoc(doc: mongoose.Document) {
+    if (!this.transaction) throw new Error('Could not find any transaction');
+
+    doc['__t'] = this.transaction._id;
+    this.participants.push({ op: 'insert', doc: doc });
   }
 
-  public remove() {
-    // TODO: implements
+  // 삭제할 document를 transaction에 참가시킴
+  public removeDoc(doc: mongoose.Document) {
+    if (!this.transaction) throw new Error('Could not find any transaction');
+
+    let id: mongoose.Types.ObjectId = doc['__t'];
+    if (!id || id.toHexString() !== this.transaction.id) throw new Error('락이 이상함');
+    this.participants.push({ op: 'remove', doc: doc });
   }
 
   public findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object) {
-    let opt = _.cloneDeep(options || {});
-    opt['__t'] = this.transaction._id;
+    return Promise.try(() => {
+      if (!this.transaction) throw new Error('Could not find any transaction');
 
-    debug('attempt write lock', opt)
-    return Promise.resolve(model.findOne(cond, fields, opt).exec()).then(doc => {
-      this.participants.push(doc);
-      return doc;
+      let opt = _.cloneDeep(options || {});
+      opt['__t'] = this.transaction._id;
+
+      debug('attempt write lock', opt)
+      return Promise.resolve(model.findOne(cond, fields, opt).exec()).then(doc => {
+        this.participants.push({ op: 'update', doc: doc });
+        return doc;
+      });
     });
   }
 }
