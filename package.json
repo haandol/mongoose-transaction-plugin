@@ -5,9 +5,9 @@
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "scripts": {
-    "postinstall": "tsc -p $(pwd)",
-    "build": "tsc -p $(pwd)",
-    "test": "tsc -p $(pwd) && jasmine"
+    "postinstall": "gulp build",
+    "build": "gulp build",
+    "test": "gulp build && jasmine"
   },
   "repository": {
     "type": "git",
@@ -29,6 +29,7 @@
     "debug": "^2.2.0",
     "lodash": "^3.10.1",
     "mongoose": "^4.1.11",
-    "source-map-support": "^0.3.2"
+    "source-map-support": "^0.3.2",
+    "gulp": ""
   }
 }

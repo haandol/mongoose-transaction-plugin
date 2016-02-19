@@ -6,6 +6,8 @@ import * as events from 'events';
 import { TransactionError, TransactionErrors } from './error';
 
 let debug = _debug('transaction');
+let RETRYCOUNT = 5;
+let RetryTimeTable = [197, 173, 181, 149, 202];
 
 interface IHistory {
   // collection name
@@ -28,7 +30,7 @@ export class Transaction extends events.EventEmitter {
   private static model: mongoose.Model<ITransaction>;
 
   private transaction: ITransaction;
-  private participants: { op: string; doc: mongoose.Document }[] = [];
+  private participants: { op: string; doc: mongoose.Document; model?: any; cond?: Object;  }[] = [];
 
   public static initialize(connection: mongoose.Connection) {
     if (this.model) return;
@@ -47,7 +49,7 @@ export class Transaction extends events.EventEmitter {
     this.model = connection.model<ITransaction>('Transaction', transactionSchema);
   }
 
-  public begin(): Promise<void> {
+  public begin() {
     return Promise.try(() => {
       if (!Transaction.model) throw new Error('Not initialized exception');
       if (this.transaction) throw new Error('Transaction has already been started');
@@ -57,7 +59,11 @@ export class Transaction extends events.EventEmitter {
       return Promise.resolve(transaction.save<ITransaction>()).then((doc) => {
         this.transaction = <any>doc;
         debug('transaction created: %o', doc);
+        return this;
       });
+    }).disposer((tx, promise) => {
+      if (promise.isFulfilled) return tx.commit();
+      return tx.cancel();
     });
   }
 
@@ -159,18 +165,40 @@ export class Transaction extends events.EventEmitter {
     this.participants.push({ op: 'remove', doc: doc });
   }
 
-  public findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object) {
+  public findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object): Promise<T> {
     return Promise.try(() => {
       if (!this.transaction) throw new Error('Could not find any transaction');
-
-      let opt = _.cloneDeep(options || {});
-      opt['__t'] = this.transaction._id;
-
-      debug('attempt write lock', opt)
-      return Promise.resolve(model.findOne(cond, fields, opt).exec()).then(doc => {
-        this.participants.push({ op: 'update', doc: doc });
-        return doc;
+      let p = _.find(this.participants, p => {
+        return p.model === model && JSON.stringify(cond) === JSON.stringify(p.cond);
       });
-    });
+      if (p) return <T>p.doc;
+    })
+      .then(doc => {
+        if (doc) return doc;
+        if (!options) options = {};
+        if (options['retrycount'] === 0) options['retrycount'] = RETRYCOUNT;
+
+        let opt = _.cloneDeep(options || {});
+        opt['__t'] = this.transaction._id;
+
+        debug('attempt write lock', opt);
+        return Promise.resolve(model.findOne(cond, fields, opt).exec())
+          .then(doc => {
+            if (!doc) return;
+            let p = _.find(this.participants, p => {
+              return p.model === model && p.doc._id.equals(doc._id);
+            })
+            if (p) return <T>p.doc;
+            this.participants.push({op: 'update', doc: doc, model: model, cond: cond});
+            return doc;
+          })
+          .catch(err => {
+            if (err !== 'write lock' || options['retrycount'] === 0) return Promise.reject(err);
+
+            options['retrycount'] -= 1;
+            return Promise.delay(RetryTimeTable[Math.floor(Math.random()*RetryTimeTable.length)])
+              .then(() => this.findOne(model, cond, fields, options));
+          });
+      });
   }
 }

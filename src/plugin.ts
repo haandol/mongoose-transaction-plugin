@@ -4,7 +4,7 @@ import * as Promise from 'bluebird';
 import { TransactionError, TransactionErrors } from './error';
 import { ObjectId } from './utils';
 
-let debug = _debug('transaction:plugin');
+let debug = _debug('ISLAND:TRANSACTION:PLUGIN');
 
 export interface TxDocument extends mongoose.Document {
   __t?: mongoose.Types.ObjectId;
@@ -20,7 +20,7 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
   schema.pre('save', function(next) {
     debug('pre-save');
     debug('checking __t field: ', this.__t);
-    if (!this.__t) return next(new TransactionError(0));
+    if (!this.__t) return next(new Error('You can\' not save without lock'));
 
     // TODO:
     // if (this.__t.toString().substring(8, 18) !== '0000000000') return next(new Error(''));
@@ -37,10 +37,13 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
     return Promise.resolve(this.model.findOne(this._conditions, { _id: 1, __t: 1 }, { force: true }).exec()).then(doc => {
       if (!doc) return next();
 
-      debug('document found: %s', doc.id);
+      debug('document found! t : ', doc.__t, ', id : ', doc.id);
       // TODO: transaction recommit
       if (doc.__t) {
-
+        if (this.options.__t && this.options.__t.equals(doc.__t)) {
+          debug('already locked: ', doc.__t);
+          return next();
+        }
       }
 
       this._conditions['_id'] = doc._id;
@@ -60,7 +63,7 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
           if (this._fields) this._fields['__t'] = 1;
           return next();
         }
-        throw new Error('write lock');
+        return next('write lock');
       });
     }).catch(next);
   });

@@ -20,7 +20,7 @@ declare class Promise<R> implements Promise.Thenable<R>, Promise.Inspection<R> {
 	/**
 	 * Create a new promise. The passed in function will receive functions `resolve` and `reject` as its arguments which can be called to seal the fate of the created promise.
 	 */
-	constructor(callback: (resolve: (thenableOrResult: R | Promise.Thenable<R>) => void, reject: (error: any) => void) => void);
+	constructor(callback: (resolve: (thenableOrResult?: R | Promise.Thenable<R>) => void, reject: (error: any) => void) => void);
 
 	/**
 	 * Promises/A+ `.then()` with progress handler. Returns a new promise chained from this promise. The new promise will be rejected or resolved dedefer on the passed `fulfilledHandler`, `rejectedHandler` and the state of this promise.
@@ -325,13 +325,18 @@ declare class Promise<R> implements Promise.Thenable<R>, Promise.Inspection<R> {
 	 * Same as calling ``Promise.filter(thisPromise, filterer)``. With the exception that if this promise is bound to a value, the returned promise is bound to that value too.
 	 */
 	// TODO type inference from array-resolving promise?
-	filter<U>(filterer: (item: U, index: number, arrayLength: number) => Promise.Thenable<boolean>, options?: Promise.ConcurrencyOption): Promise<U[]>;
-	filter<U>(filterer: (item: U, index: number, arrayLength: number) => boolean, options?: Promise.ConcurrencyOption): Promise<U[]>;
+	filter<U>(filterer: (item: U, index: number, arrayLength: number) => Promise.Thenable<boolean>): Promise<U[]>;
+	filter<U>(filterer: (item: U, index: number, arrayLength: number) => boolean): Promise<U[]>;
 
 	/**
 	 * Same as calling ``Promise.each(thisPromise, iterator)``. With the exception that if this promise is bound to a value, the returned promise is bound to that value too.
 	 */
 	each<R, U>(iterator: (item: R, index: number, arrayLength: number) => U | Promise.Thenable<U>): Promise<R[]>;
+
+	/**
+	 * A meta method used to specify the disposer method that cleans up a resource when using using()
+	 */
+	disposer(disposer: (value: R, promise: Promise<R>) => any): Promise.Disposer<R>;
 
 	/**
 	 * Start the chain of promises with `Promise.try`. Any synchronous exceptions will be turned into rejections on the returned promise.
@@ -614,6 +619,13 @@ declare class Promise<R> implements Promise.Thenable<R>, Promise.Inspection<R> {
 	static filter<R>(values: R[], filterer: (item: R, index: number, arrayLength: number) => boolean, option?: Promise.ConcurrencyOption): Promise<R[]>;
 
 	/**
+	 * In conjunction with .disposer(), using will make sure that no matter what, the specified disposer will be called when the promise returned by the callback passed to using has settled. The disposer is necessary because there is no standard interface in node for disposing resources.
+	 */
+	static using<R, T1>(disposer: Promise.Disposer<T1>, handler: (v: T1) => any): Promise<R>;
+	static using<R, T1, T2>(d1: Promise.Disposer<T1>, d2: Promise.Disposer<T2>, handler: (v: T1, v2: T2) => any): Promise<R>;
+	static using<R, T1, T2, T3>(d1: Promise.Disposer<T1>, d2: Promise.Disposer<T2>, d3: Promise.Disposer<T3>, handler: (v: T1, v2: T2, v3: T3) => any): Promise<R>;
+
+  /**
 	 * Iterate over an array, or a promise of an array, which contains promises (or a mix of promises and values) with the given iterator function with the signature (item, index, value) where item is the resolved value of a respective promise in the input array. Iteration happens serially. If any promise in the input array is rejected the returned promise is rejected as well.
 	 *
 	 * Resolves to the original array unmodified, this method is meant to be used for side effects. If the iterator function returns a promise or a thenable, the result for the promise is awaited for before continuing with next iteration.
@@ -731,6 +743,9 @@ declare module Promise {
 		 */
 		reason(): any;
 	}
+
+  export interface Disposer<R> extends Thenable<R> {
+  }
 
 	/**
 	 * Changes how bluebird schedules calls a-synchronously.
