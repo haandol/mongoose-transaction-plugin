@@ -1,29 +1,22 @@
 {
-    "compilerOptions": {
-        "module": "commonjs",
-        "target": "ES5",
-        "noImplicitAny": false,
-        "outDir": "./dist",
-        "rootDir": "./src",
-        "declaration": true,
-        "sourceMap": true,
-        "moduleResolution": "node",
-        "suppressExcessPropertyErrors": true
-    },
-    "exclude": [
-        "node_modules",
-        "spec",
-        "typings"
-    ],
-    "files": [
-      "./typings/bluebird/bluebird.d.ts",
-      "./typings/debug/debug.d.ts",
-      "./typings/jasmine/jasmine.d.ts",
-      "./typings/lodash/lodash.d.ts",
-      "./typings/mongoose/mongoose.d.ts",
-      "./typings/node/node.d.ts",
-
-      "./src/index.ts",
-      "./src/spec/transaction-spec.ts"
-    ]
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "commonjs",
+    "sourceMap": true,
+    "declaration": true,
+    "outDir": "./dist",
+    "moduleResolution": "node",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "exclude": [
+    "spec",
+    "dist",
+    "node_modules"
+  ],
+  "files": [
+    "./src/index.ts",
+    "./src/spec/transaction-spec.ts",
+    "./typings/index.d.ts"
+  ]
 }

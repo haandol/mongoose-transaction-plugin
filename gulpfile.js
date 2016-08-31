@@ -26,7 +26,7 @@ function watch() {
 
 function clean(done) {
   var del = require('del');
-  del(['./dist', './node_modules', './typings'], done);
+  del(['./dist', './node_modules'], done);
 }
 
 gulp.task('build',            compileTypescript);

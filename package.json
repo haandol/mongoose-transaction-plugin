@@ -1,6 +1,6 @@
 {
   "name": "mongoose-transaction-plugin",
-  "version": "0.0.6",
+  "version": "0.0.5",
   "description": "A mongoose plugin for transaction-like semantics between multiple documents.",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -25,11 +25,14 @@
   },
   "homepage": "https://github.com/wokim/mongoose-transaction-plugin#readme",
   "dependencies": {
-    "bluebird": "^2.10.2",
+    "bluebird": "^3.4.1",
     "debug": "^2.2.0",
-    "lodash": "^3.10.1",
-    "mongoose": "^4.1.11",
-    "source-map-support": "^0.3.2",
-    "gulp": ""
+    "gulp": "^3.9.1",
+    "lodash": "^4.14.1",
+    "mongoose": "^4.5.8",
+    "source-map-support": "^0.4.2"
+  },
+  "devDependencies": {
+    "random-words": "0.0.1"
   }
 }

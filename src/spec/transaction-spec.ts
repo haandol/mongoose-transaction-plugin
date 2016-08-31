@@ -18,12 +18,12 @@ let testPlayerSchema = new mongoose.Schema({ name: String, age: Number, money: N
 testPlayerSchema.plugin(plugin);
 let TestPlayer = conn.model<ITestPlayer>('TestPlayer', testPlayerSchema);
 
-describe('transaction' ,() => {
+describe('transaction', () => {
   beforeAll(done => {
     Transaction.initialize(conn);
     let testPlayer1 = new TestPlayer({ name: 'ekim', age: 10, money: 0 });
     let testPlayer2 = new TestPlayer({ name: 'wokim', age: 50, money: 0 });
-    return Promise.using<any, Transaction>(new Transaction().begin(), t => {
+    return Promise.using(new Transaction().begin(), t => {
       t.insertDoc(testPlayer1);
       t.insertDoc(testPlayer2);
     }).then(() => done());
@@ -42,7 +42,7 @@ describe('transaction' ,() => {
   });
 
   xit('could commit two documents in same transaction', done => {
-    Promise.using<{test: number}, Transaction>(new Transaction().begin(), tx => {
+    Promise.using(new Transaction().begin(), tx => {
       return Promise.props({
         testPlayer: tx.findOne(TestPlayer, { name: 'wokim' }, {}),
       }).then((results:any) => {
@@ -53,7 +53,7 @@ describe('transaction' ,() => {
       });
     }).then(results => {
       expect(results.test).toBe(1);
-      done()
+      done();
     }).catch(err => done.fail(err));
   });
 
@@ -74,7 +74,7 @@ describe('transaction' ,() => {
   });
 
   it('duplicate findOne with One Transaction', done => {
-    Promise.using<any, Transaction>(new Transaction().begin(), t => {
+    Promise.using(new Transaction().begin(), t => {
       return t.findOne(TestPlayer, {name: 'ekim'})
         .then((doc:any) => {
           expect(doc['__t'] === undefined).not.toBeTruthy();
@@ -98,7 +98,7 @@ describe('transaction' ,() => {
   });
 
   it('duplicate findOne with other conditions', done => {
-    Promise.using<any, Transaction>(new Transaction().begin(), t => {
+    Promise.using(new Transaction().begin(), t => {
       return t.findOne(TestPlayer, {name: 'ekim'})
         .then(doc => {
           expect(doc['__t'] === undefined).not.toBeTruthy();
@@ -123,7 +123,7 @@ describe('transaction' ,() => {
 
   it('concurrency test(retry)', done => {
     function addMoney(name:string, money: number) {
-      return Promise.using<any, Transaction>(new Transaction().begin(), t => {
+      return Promise.using(new Transaction().begin(), t => {
         return t.findOne(TestPlayer, {name: name})
           .then(doc => {
             doc.money += money;
@@ -150,7 +150,7 @@ describe('transaction' ,() => {
 
   it('delete all document', done => {
     function removePlayerDoc(name: string) {
-      return Promise.using<any, Transaction>(new Transaction().begin(), t => {
+      return Promise.using(new Transaction().begin(), t => {
         return t.findOne(TestPlayer, {name: name})
           .then((doc:any) => {
             t.removeDoc(doc);
