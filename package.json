@@ -27,12 +27,12 @@
   "dependencies": {
     "bluebird": "^3.4.1",
     "debug": "^2.2.0",
-    "gulp": "^3.9.1",
     "lodash": "^4.14.1",
-    "mongoose": "^4.5.8",
-    "source-map-support": "^0.4.2"
+    "mongoose": "^4.5.8"
   },
   "devDependencies": {
-    "random-words": "0.0.1"
+    "gulp": "^3.9.1",
+    "random-words": "0.0.1",
+    "source-map-support": "^0.4.2"
   }
 }
