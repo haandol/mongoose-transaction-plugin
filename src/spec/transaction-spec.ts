@@ -12,7 +12,7 @@ interface ITestPlayer extends mongoose.Document {
 }
 
 let debug = _debug('transaction:test');
-let conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://192.168.99.100');
+let conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://localhost');
 
 
 let testPlayerSchema = new mongoose.Schema({ name: String, age: Number, money: Number });
