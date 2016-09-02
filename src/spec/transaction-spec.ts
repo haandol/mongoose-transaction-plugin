@@ -14,6 +14,7 @@ interface ITestPlayer extends mongoose.Document {
 let debug = _debug('transaction:test');
 let conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://localhost');
 
+console.log('MONGODB', process.env.MONGODB);
 
 let testPlayerSchema = new mongoose.Schema({ name: String, age: Number, money: Number });
 testPlayerSchema.plugin(plugin);

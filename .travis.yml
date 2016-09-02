@@ -16,6 +16,7 @@ install:
 
 env:
   - MONGODB=mongodb://localhost
+  - DEBUG=*
 
 before_script:
   - wget http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-2.6.11.tgz
