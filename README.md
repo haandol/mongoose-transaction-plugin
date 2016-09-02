@@ -1,6 +1,10 @@
 # mongoose-transaction-plugin
 A mongoose plugin for transaction-like semantics between multiple documents.
 
+[![Build Status](https://api.travis-ci.org/spearhead-ea/mongoose-transaction-plugin.svg?branch=master)](https://travis-ci.org/spearhead-ea/mongoose-transaction-plugin)
+[![NPM version](https://badge.fury.io/js/mongoose-transaction-plugin.svg)](http://badge.fury.io/js/mongoose-transaction-plugin)
+[![Dependency Status](https://david-dm.org/spearhead-ea/mongoose-transaction-plugin/status.svg)](https://david-dm.org/spearhead-ea/mongoose-transaction-plugin)
+
 ## Example
 ```typescript
 let conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://192.168.99.100:27017');

@@ -10,7 +10,7 @@ install:
   - npm install -g jasmine gulp typescript
 
 env:
-  - MONGODB=mongodb://localhost DEBUG=*
+  - MONGODB=mongodb://localhost
 
 before_script:
   - wget http://fastdl.mongodb.org/linux/mongodb-linux-x86_64-2.6.11.tgz
