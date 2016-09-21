@@ -32,6 +32,10 @@ describe('transaction', () => {
     }).then(() => done());
   });
 
+  afterAll(done => {
+    conn.close(done);
+  })
+
   it('could use write lock', done => {
     Bluebird.resolve(TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }).exec()).then(doc => {
       expect(doc['__t'] === undefined).not.toBeTruthy();
