@@ -1,6 +1,6 @@
 {
   "name": "mongoose-transaction-plugin",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "A mongoose plugin for transaction-like semantics between multiple documents.",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -18,8 +18,11 @@
     "transaction",
     "mongodb"
   ],
-  "author": "wokim",
-  "license": "BSD-2-Clause",
+  "author": "wokim <wonshikkim.kr@gmail.com>",
+  "contributors": [
+    "heycalmdown <hey.calmdown@gmail.com>"
+  ],
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/wokim/mongoose-transaction-plugin/issues"
   },
