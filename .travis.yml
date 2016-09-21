@@ -6,8 +6,8 @@ node_js:
   - "6"
 
 install:
-  - npm install
   - npm install -g jasmine gulp typescript
+  - npm install
 
 env:
   - MONGODB=mongodb://localhost
