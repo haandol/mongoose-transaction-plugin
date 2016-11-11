@@ -67,9 +67,15 @@ export class Transaction extends events.EventEmitter {
       });
     }).disposer((tx, promise) => {
       if (promise.isFulfilled()) {
-        return tx.commit();
+        return tx.commit()
+          .catch(e => {
+            console.log('tx.commit failed', e);
+          });
       }
-      return tx.cancel();
+      return tx.cancel()
+        .catch(e => {
+          console.log('tx.cancel failed', e);
+        });
     });
   }
 
@@ -129,24 +135,27 @@ export class Transaction extends events.EventEmitter {
 
     return Promise.all(this.participants.map(participant => {
       // TODO: should be fixed mongoose.d.ts
-      return Promise.resolve(participant.doc.validate(undefined)).then(() => {
-        debug('delta: %o', (<any>participant.doc).$__delta());
-        // TODO: 쿼리 제대로 만들기
-        let query: string;
-        if (participant.op === 'update') {
-          query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
-        } else if (participant.op === 'remove') {
-          query = JSON.stringify({ _id: '' });
-        } else if (participant.op === 'insert') {
-          query = JSON.stringify({});
-        }
-        this.transaction.history.push({
-          col: (<any>participant.doc).collection.name,
-          oid: participant.doc._id,
-          op: participant.op,
-          query: query
+      return new Promise((resolve, reject) => {
+        participant.doc.validate(err => err && reject(err) || resolve());
+      })
+        .then(() => {
+          debug('delta: %o', (<any>participant.doc).$__delta());
+          // TODO: 쿼리 제대로 만들기
+          let query: string;
+          if (participant.op === 'update') {
+            query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
+          } else if (participant.op === 'remove') {
+            query = JSON.stringify({ _id: '' });
+          } else if (participant.op === 'insert') {
+            query = JSON.stringify({});
+          }
+          this.transaction.history.push({
+            col: (<any>participant.doc).collection.name,
+            oid: participant.doc._id,
+            op: participant.op,
+            query: query
+          });
         });
-      });
     })).then(() => {
       debug('history generated: %o', this.transaction.history);
       this.transaction.state = 'pending';
