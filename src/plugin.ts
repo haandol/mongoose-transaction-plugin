@@ -1,21 +1,20 @@
 import * as mongoose from 'mongoose';
 import * as _debug from 'debug';
-import * as Promise from 'bluebird';
+import * as Bluebird from 'bluebird';
 import { Transaction } from './transaction';
-import { TransactionError, TransactionErrors } from './error';
 import { ObjectId } from './utils';
 
-let debug = _debug('transaction');
+const debug = _debug('transaction');
 
 export interface TxDocument extends mongoose.Document {
   __t?: mongoose.Types.ObjectId;
-  //__new?: boolean;
+  // __new?: boolean;
 }
 
 export function plugin(schema: mongoose.Schema, options?: Object) {
   schema.add({
     __t: { type: mongoose.Schema.Types.ObjectId },
-    //__new: { type: Boolean, default: true }
+    // __new: { type: Boolean, default: true }
   });
 
   schema.pre('save', function(next) {
@@ -42,7 +41,7 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
         let tDisplace = false;
         debug('document found! t : ', doc.__t, ', id : ', doc.id);
 
-        return Promise.try(() => {
+        return Bluebird.try(() => {
             if (doc.__t) {
               // multiple findOne in a single transaction.
               if (this.options.__t && this.options.__t.equals(doc.__t)) {
@@ -50,10 +49,10 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
                 return next();
               }
 
-              let tModel = this.options.tModel;
+              const tModel = this.options.tModel;
               debug('tModel is ', tModel);
-              let docTime = doc.__t.getTimestamp();
-              let current = new Date().getTime();
+              const docTime = doc.__t.getTimestamp();
+              const current = new Date().getTime();
               debug('timestamp! ', docTime, current, current - docTime);
 
               if (current - docTime >= 30000) {
@@ -68,13 +67,13 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
                         // cancel
                         debug('cancel transaction');
                         tDisplace = true;
-                        tModel.update({_id: doc.__t}, {state: 'canceled'}, {w:1}).exec();
+                        tModel.update({_id: doc.__t}, {state: 'canceled'}, {w: 1}).exec();
                         break;
                       case 'pending':
                         // recommit
                         debug('recommit transaction');
                         return Transaction.recommit(t)
-                          .then(() => tModel.update({_id: doc.__t}, {state: 'committed'}, {w:1}).exec());
+                          .then(() => tModel.update({_id: doc.__t}, {state: 'committed'}, {w: 1}).exec());
                       case 'committed':
                         debug('already committed. ignore __t');
                         tDisplace = true;
@@ -88,7 +87,7 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
             this._conditions['_id'] = doc._id;
             if (!tDisplace) this._conditions['__t'] = {'$exists': false};
             debug('conditions are modified', this._conditions);
-            var update = {__t: this.options.__t || ObjectId.get(Date.now())};
+            const update = {__t: this.options.__t || ObjectId.get(Date.now())};
             debug('update query is modified %o', update);
 
             return Promise.resolve(this.model.update(this._conditions, update, {
@@ -103,7 +102,7 @@ export function plugin(schema: mongoose.Schema, options?: Object) {
                 if (this._fields) this._fields['__t'] = 1;
                 return next();
               }
-              return next('write lock');
+              return next(new Error('write lock'));
             });
           }).catch(next);
       });

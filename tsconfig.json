@@ -7,16 +7,14 @@
     "outDir": "./dist",
     "moduleResolution": "node",
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "emitDecoratorMetadata": true,
+    "noUnusedLocals": true
   },
   "exclude": [
-    "spec",
     "dist",
     "node_modules"
   ],
-  "files": [
-    "./src/index.ts",
-    "./src/spec/transaction-spec.ts",
-    "./typings/index.d.ts"
+  "include": [
+    "src/**/*"
   ]
 }

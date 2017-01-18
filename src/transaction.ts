@@ -1,13 +1,12 @@
 import * as mongoose from 'mongoose';
 import * as _ from 'lodash';
-import * as Promise from 'bluebird';
+import * as Bluebird from 'bluebird';
 import * as _debug from 'debug';
 import * as events from 'events';
-import { TransactionError, TransactionErrors } from './error';
 
-let debug = _debug('transaction');
-let RETRYCOUNT = 5;
-let RetryTimeTable = [197, 173, 181, 149, 202];
+const debug = _debug('transaction');
+const RETRYCOUNT = 5;
+const RetryTimeTable = [197, 173, 181, 149, 202];
 
 export interface IHistory {
   // collection name
@@ -23,6 +22,7 @@ export interface IHistory {
 export interface ITransaction extends mongoose.Document {
   history: IHistory[];
   state: string;
+  id: string;
 }
 
 export class Transaction extends events.EventEmitter {
@@ -38,14 +38,14 @@ export class Transaction extends events.EventEmitter {
   public static initialize(connection: mongoose.Connection) {
     if (this.model) return;
 
-    let historySchema = new mongoose.Schema({
+    const historySchema = new mongoose.Schema({
       col: { type: String, required: true },
       oid: { type: mongoose.Schema.Types.ObjectId, required: true },
       op: { type: String, required: true },
       query: { type: String, required: true }
     });
 
-    let transactionSchema = new mongoose.Schema({
+    const transactionSchema = new mongoose.Schema({
       history: [historySchema],
       state: { type: String, required: true, default: 'init' }
     });
@@ -54,13 +54,13 @@ export class Transaction extends events.EventEmitter {
   }
 
   public begin() {
-    return Promise.try(() => {
+    return Bluebird.try(() => {
       if (!Transaction.model) throw new Error('Not initialized exception');
       if (this.transaction) throw new Error('Transaction has already been started');
 
-      let transaction = new Transaction.model();
+      const transaction = new Transaction.model();
       // TODO: should be fixed mongoose.d.ts
-      return Promise.resolve(transaction.save<ITransaction>()).then((doc) => {
+      return Promise.resolve(transaction.save()).then((doc) => {
         this.transaction = <any>doc;
         debug('transaction created: %o', doc);
         return this;
@@ -80,16 +80,16 @@ export class Transaction extends events.EventEmitter {
   }
 
   static scope<R>(doInTransactionScope: (t: Transaction) => Promise<R>): Promise<R> {
-    return Promise.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
+    return Bluebird.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
   }
 
   public cancel(): Promise<void> {
     if (!this.transaction) return Promise.resolve();
-    return Promise.try(() => {
+    return Bluebird.try(() => {
       if (this.transaction.state && this.transaction.state !== 'init') return;
 
       return Promise.resolve(this.transaction.remove()).then(() => {
-        return Promise.each(this.participants, participant => {
+        return Bluebird.each(this.participants, participant => {
           // TODO: Promise.defer is deprecated
           // TODO: should be fixed mongoose.d.ts
           if (participant.doc.isNew) return participant.doc['__t'] = undefined;
@@ -105,7 +105,7 @@ export class Transaction extends events.EventEmitter {
   }
 
   public static recommit(transaction: ITransaction): Promise<void> {
-    let histories = transaction.history;
+    const histories = transaction.history;
     if (!histories) return Promise.resolve();
 
     return Promise.all(histories.map(history => {
@@ -116,7 +116,7 @@ export class Transaction extends events.EventEmitter {
             debug('Can not find collection: ', err);
             resolve();
           }
-          let query = JSON.parse(history.query);
+          const query = JSON.parse(history.query);
           query['$unset'] = query['$unset'] || {};
           query['$unset']['__t'] = '';
           debug('update recommit query is : ', query);
@@ -143,7 +143,7 @@ export class Transaction extends events.EventEmitter {
           // TODO: 쿼리 제대로 만들기
           let query: string;
           if (participant.op === 'update') {
-            query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
+            query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
           } else if (participant.op === 'remove') {
             query = JSON.stringify({ _id: '' });
           } else if (participant.op === 'insert') {
@@ -159,14 +159,14 @@ export class Transaction extends events.EventEmitter {
     })).then(() => {
       debug('history generated: %o', this.transaction.history);
       this.transaction.state = 'pending';
-      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
+      return Promise.resolve(this.transaction.save()).catch(err => {
         this.transaction.state = 'init';
         throw err;
       });
     }).then(doc => {
       this.transaction = <any>doc;
       debug('apply participants\' changes');
-      return Promise.map(this.participants, participant => {
+      return Bluebird.map(this.participants, participant => {
         if (participant.op === 'remove') return participant.doc.remove();
         else return participant.doc.save();
       }).catch(err => {
@@ -179,7 +179,7 @@ export class Transaction extends events.EventEmitter {
     }).then(() => {
       debug('change state from (pending) to (committed)');
       this.transaction.state = 'committed';
-      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
+      return Promise.resolve(this.transaction.save()).catch(err => {
         debug('All transactions were committed but failed to save their status');
         return;
       });
@@ -205,28 +205,28 @@ export class Transaction extends events.EventEmitter {
   public removeDoc(doc: mongoose.Document) {
     if (!this.transaction) throw new Error('Could not find any transaction');
 
-    let id: mongoose.Types.ObjectId = doc['__t'];
+    const id: mongoose.Types.ObjectId = doc['__t'];
     if (!id || id.toHexString() !== this.transaction.id) throw new Error('락이 이상함');
     this.participants.push({ op: 'remove', doc: doc });
   }
 
   public findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object): Promise<T> {
-    return Promise.try(() => {
+    return Bluebird.try(() => {
       if (!this.transaction) throw new Error('Could not find any transaction');
-      let p = _.find(this.participants, p => {
+      const p = _.find(this.participants, p => {
         return p.model === model && JSON.stringify(cond) === JSON.stringify(p.cond);
       });
       if (p) return <T>p.doc;
     })
       .then(doc => {
         if (doc) return doc;
-        if (!options) options = { retrycount: 5 };
+        if (!options) options = { retrycount: RETRYCOUNT };
         if (options['retrycount'] === undefined) {
           debug('set retrycount ', options, options['retrycount']);
-          options['retrycount'] = 5;
+          options['retrycount'] = RETRYCOUNT;
         }
 
-        let opt = _.cloneDeep(options || {});
+        const opt = _.cloneDeep(options || {});
         opt['__t'] = this.transaction._id;
         opt['tModel'] = Transaction.getModel;
 
@@ -236,9 +236,9 @@ export class Transaction extends events.EventEmitter {
         return Promise.resolve(model.findOne(cond, fields, opt).exec())
           .then(doc => {
             if (!doc) return;
-            let p = _.find(this.participants, p => {
+            const p = _.find(this.participants, p => {
               return p.model === model && p.doc._id.equals(doc._id);
-            })
+            });
             if (p) return <T>p.doc;
             this.participants.push({op: 'update', doc: doc, model: model, cond: cond});
             return doc;
@@ -248,7 +248,7 @@ export class Transaction extends events.EventEmitter {
             if (err !== 'write lock' || options['retrycount'] === 0) return Promise.reject(err);
 
             options['retrycount'] -= 1;
-            return Promise.delay(RetryTimeTable[Math.floor(Math.random()*RetryTimeTable.length)])
+            return Bluebird.delay(RetryTimeTable[Math.floor(Math.random() * RetryTimeTable.length)])
               .then(() => this.findOne(model, cond, fields, options));
           });
       });
