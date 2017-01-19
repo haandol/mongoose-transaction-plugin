@@ -237,7 +237,7 @@ export class Transaction extends events.EventEmitter {
     opt['tModel'] = Transaction.getModel;
     opt['transaction'] = true;
 
-    debug('tModel before ', opt['tModel']);
+    debug('tModel before ', opt['tModel'].collection.name);
 
     debug('attempt write lock', opt);
     let doc: T;

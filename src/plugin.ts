@@ -3,6 +3,8 @@ import * as _debug from 'debug';
 import { Transaction } from './transaction';
 import { ObjectId } from './utils';
 
+(mongoose as any).Promise = Promise;
+
 const debug = _debug('transaction');
 
 export interface TxDocument extends mongoose.Document {
@@ -63,7 +65,7 @@ class PreFindOne {
 
   async resolvePreviousTransaction(tid) {
     const tModel = this.options.tModel;
-    debug('tModel is ', tModel);
+    debug('tModel is ', tModel.collection.name);
 
     if (!this.isExpired(tid)) return; // let it be conflicted
 
@@ -103,7 +105,7 @@ class PreFindOne {
   }
 
   async getMinimalDoc(conditions) {
-    return this.model.findOne(conditions, {_id: 1, __t: 1}, {force: true}).exec();
+    return this.model.findOne(conditions, {_id: 1, __t: 1}).exec();
   }
 
   async run() {
