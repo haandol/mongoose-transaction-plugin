@@ -20,32 +20,30 @@ interface ITestPlayer extends mongoose.Document {
 }
 
 const debug = _debug('transaction:test');
-let conn: mongoose.Connection;
+const conn: mongoose.Connection = mongoose.connection;
 let TestPlayer: mongoose.Model<ITestPlayer>;
 
 describe('transaction', () => {
-  beforeAll(async (done) => {
-    mockgoose(mongoose).then(() => {
-      conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://localhost');
+  beforeAll(spec(async () => {
+    await mockgoose(mongoose);
+    await new Promise(resolve => mongoose.connect('test', resolve));
 
-      const testPlayerSchema = new mongoose.Schema({ name: String, age: Number, money: Number });
-      testPlayerSchema.plugin(plugin);
-      TestPlayer = conn.model<ITestPlayer>('TestPlayer', testPlayerSchema);
+    const testPlayerSchema = new mongoose.Schema({ name: String, age: Number, money: Number });
+    testPlayerSchema.plugin(plugin);
+    TestPlayer = conn.model<ITestPlayer>('TestPlayer', testPlayerSchema);
 
-      TestPlayer.collection.drop();
-      Transaction.initialize(conn);
-      const testPlayer1 = new TestPlayer({ name: 'ekim', age: 10, money: 0 });
-      const testPlayer2 = new TestPlayer({ name: 'wokim', age: 50, money: 0 });
-      return Bluebird.using(new Transaction().begin(), t => {
-        t.insertDoc(testPlayer1);
-        t.insertDoc(testPlayer2);
-      }).then(() => done());
+    TestPlayer.collection.drop();
+    Transaction.initialize(conn);
+  }));
+
+  beforeEach(spec(async () => {
+    const testPlayer1 = new TestPlayer({ name: 'ekim', age: 10, money: 0 });
+    const testPlayer2 = new TestPlayer({ name: 'wokim', age: 50, money: 0 });
+    await Bluebird.using(new Transaction().begin(), t => {
+      t.insertDoc(testPlayer1);
+      t.insertDoc(testPlayer2);
     });
-  });
-
-  afterAll(done => {
-    conn.close(done);
-  });
+  }));
 
   it('could use write lock', spec(async () => {
     const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }).exec();
@@ -58,12 +56,12 @@ describe('transaction', () => {
   }));
 
   it('could commit two documents in same transaction', spec(async () => {
-    Bluebird.using(new Transaction().begin(), async (tx) => {
+    await Bluebird.using(new Transaction().begin(), async (tx) => {
       const testPlayer = await tx.findOne(TestPlayer, { name: 'wokim' });
       debug('locking success: %o', testPlayer);
       testPlayer.money += 600;
-      expect(1).toBe(1);
     });
+    expect(1).toBe(1);
   }));
 
   it('can not save without lock', spec(async () => {
@@ -101,13 +99,13 @@ describe('transaction', () => {
       const doc = await t.findOne(TestPlayer, {name: 'ekim'});
       expect(doc['__t']).toBeDefined();
       console.log('first doc is ', doc);
-      doc.money -= 500;
+      doc.money += 500;
       const sameButDiffConditionDoc = await t.findOne(TestPlayer, {age: 10});
       console.log('second doc is ', doc);
-      sameButDiffConditionDoc.money -= 1000;
+      sameButDiffConditionDoc.money += 1000;
     });
     const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
-    expect(doc.money).toBe(0);
+    expect(doc.money).toBe(1500);
   }));
 
   xit('concurrency test(retry)', done => {
@@ -147,5 +145,14 @@ describe('transaction', () => {
     expect(async () => {
       await Bluebird.all([removePlayerDoc('ekim'), removePlayerDoc('wokim')]);
     }).not.toThrow();
+  }));
+
+  afterEach(spec(async () => {
+    await new Promise((resolve) => mockgoose.reset(() => resolve()));
+  }));
+
+  afterAll(spec(async () => {
+    await new Promise((resolve) => (mongoose as any).unmock(resolve));
+    await new Promise(resolve => mongoose.disconnect(resolve));
   }));
 });
