@@ -235,6 +235,7 @@ export class Transaction extends events.EventEmitter {
     const opt = _.cloneDeep(options || {});
     opt['__t'] = this.transaction._id;
     opt['tModel'] = Transaction.getModel;
+    opt['transaction'] = true;
 
     debug('tModel before ', opt['tModel']);
 

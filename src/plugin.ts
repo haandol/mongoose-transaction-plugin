@@ -107,7 +107,7 @@ class PreFindOne {
   }
 
   async run() {
-    if (this.options.force) return;
+    if (!this.options.transaction) return;
 
     debug('pre-findOne');
     debug('options: %o', this.options);

@@ -46,7 +46,7 @@ describe('transaction', () => {
   }));
 
   it('could use write lock', spec(async () => {
-    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }).exec();
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }, {transaction: true}).exec();
     expect(doc['__t']).toBeDefined();
     debug('__t is %s', doc['__t']);
     debug('save document to detatch __t');
@@ -65,18 +65,16 @@ describe('transaction', () => {
   }));
 
   it('can not save without lock', spec(async () => {
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
     expect(doc['__t']).toBeUndefined();
     // console.log('doc is ', doc);
     // console.log('save document to detatch __t');
-    const save = Bluebird.promisify(doc.save);
     try {
-      await save();
+      await doc.save();
       expect(true).toEqual(false);
     } catch (e) {
       expect(true).toEqual(true);
     }
-    // expect(async () => await save()).toThrow();
   }));
 
   it('duplicate findOne with One Transaction', spec(async () => {
@@ -89,7 +87,7 @@ describe('transaction', () => {
       // console.log('second doc is ', doc);
       secondTry.money += 1000;
     });
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
     // console.log(doc.money);
     expect(doc.money).toBe(1500);
   }));
@@ -104,7 +102,7 @@ describe('transaction', () => {
       console.log('second doc is ', doc);
       sameButDiffConditionDoc.money += 1000;
     });
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
     expect(doc.money).toBe(1500);
   }));
 
@@ -127,7 +125,7 @@ describe('transaction', () => {
       addMoney('ekim', 100)
     ])
       .then((results) => {
-        return Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec());
+        return Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}).exec());
       })
       .then(doc => {
         expect(doc.money).toBe(400);
