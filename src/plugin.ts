@@ -146,7 +146,7 @@ export async function plugin(schema: mongoose.Schema, options?: Object) {
   schema.pre('save', function(next) {
     debug('pre-save');
     debug('checking __t field: ', this.__t);
-    if (!this.__t) return next(new Error('You can\' not save without lock'));
+    if (!this.__t && !this.isNew) return next(new Error('You can\' not save without lock'));
 
     // TODO:
     // if (this.__t.toString().substring(8, 18) !== '0000000000') return next(new Error(''));

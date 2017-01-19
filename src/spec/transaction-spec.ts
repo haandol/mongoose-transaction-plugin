@@ -106,6 +106,16 @@ describe('transaction', () => {
     expect(doc.money).toBe(1500);
   }));
 
+  it('should save new document without transaction', spec(async () => {
+    const doc = new TestPlayer({ name: 'newbie', age: 1 });
+    try {
+      await doc.save();
+      expect(true).toEqual(true);
+    } catch (e) {
+      expect(e).toBeUndefined();
+    }
+  }));
+
   xit('concurrency test(retry)', done => {
     function addMoney(name: string, money: number) {
       return Bluebird.using(new Transaction().begin(), t => {
