@@ -7,6 +7,12 @@ import { Transaction } from '../transaction';
 
 const mockgoose = require('mockgoose');
 
+export function spec(assertion: () => Promise<void>) {
+  return function (done) {
+    assertion.call(this).then(done, done.fail);
+  };
+}
+
 interface ITestPlayer extends mongoose.Document {
   name: string;
   age: number;
@@ -41,101 +47,68 @@ describe('transaction', () => {
     conn.close(done);
   });
 
-  it('could use write lock', done => {
-    Bluebird.resolve(TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }).exec()).then(doc => {
-      expect(doc['__t'] === undefined).not.toBeTruthy();
-      debug('__t is %s', doc['__t']);
-      debug('save document to detatch __t');
-      return Bluebird.resolve(doc.save()).then(doc => {
-        expect(doc['__t'] === undefined).toBeTruthy();
-        done();
-      });
-    }).catch(err => done.fail(err));
-  });
+  it('could use write lock', spec(async () => {
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }).exec();
+    expect(doc['__t']).toBeDefined();
+    debug('__t is %s', doc['__t']);
+    debug('save document to detatch __t');
 
-  it('could commit two documents in same transaction', done => {
-    Bluebird.using(new Transaction().begin(), tx => {
-      return Bluebird.props({
-        testPlayer: tx.findOne(TestPlayer, { name: 'wokim' }),
-      }).then((results: any) => {
-        debug('locking success: %o', results.testPlayer);
-        const testPlayer = <ITestPlayer>results.testPlayer;
-        testPlayer.money += 600;
-        return {test: 1};
-      });
-    }).then(results => {
-      expect(results.test).toBe(1);
-      done();
-    }).catch(err => done.fail(err));
-  });
+    const saved = await doc.save();
+    expect(saved['__t']).toBeUndefined();
+  }));
 
-  it('can not save without lock', done => {
-    Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec())
-      .then(doc => {
-        expect(doc['__t'] === undefined).toBeTruthy();
-        // console.log('doc is ', doc);
-        // console.log('save document to detatch __t');
-        const save = Bluebird.promisify(doc.save);
-        return save().then(result => {
-          done.fail('FAIL! save without lock');
-        }).catch(err => {
-          // console.log('error for save() ', err);
-          done();
-        });
-      });
-  });
+  it('could commit two documents in same transaction', spec(async () => {
+    Bluebird.using(new Transaction().begin(), async (tx) => {
+      const testPlayer = await tx.findOne(TestPlayer, { name: 'wokim' });
+      debug('locking success: %o', testPlayer);
+      testPlayer.money += 600;
+      expect(1).toBe(1);
+    });
+  }));
 
-  it('duplicate findOne with One Transaction', done => {
-    Bluebird.using(new Transaction().begin(), t => {
-      return t.findOne(TestPlayer, {name: 'ekim'})
-        .then((doc: any) => {
-          expect(doc['__t'] === undefined).not.toBeTruthy();
-          // console.log('first doc is ', doc);
-          doc.money += 500;
-          return t.findOne(TestPlayer, {name: 'ekim'})
-            .then((doc: any) => {
-              // console.log('second doc is ', doc);
-              doc.money += 1000;
-              return doc;
-            });
-        });
-    })
-      .then(result => {
-        return Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec());
-      })
-      .then(doc => {
-        // console.log(doc.money);
-        expect(doc.money).toBe(1500);
-        done();
-      })
-      .catch(e => {
-        console.error(e);
-      });
-  });
+  it('can not save without lock', spec(async () => {
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    expect(doc['__t']).toBeUndefined();
+    // console.log('doc is ', doc);
+    // console.log('save document to detatch __t');
+    const save = Bluebird.promisify(doc.save);
+    try {
+      await save();
+      expect(true).toEqual(false);
+    } catch (e) {
+      expect(true).toEqual(true);
+    }
+    // expect(async () => await save()).toThrow();
+  }));
 
-  it('duplicate findOne with other conditions', done => {
-    Bluebird.using(new Transaction().begin(), t => {
-      return t.findOne(TestPlayer, {name: 'ekim'})
-        .then(doc => {
-          expect(doc['__t'] === undefined).not.toBeTruthy();
-          // console.log('first doc is ', doc);
-          doc.money -= 500;
-          return t.findOne(TestPlayer, {age: 10})
-            .then(doc => {
-              // console.log('second doc is ', doc);
-              doc.money -= 1000;
-              return doc;
-            });
-        });
-    })
-      .then(result => {
-        return Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec());
-      })
-      .then(doc => {
-        expect(doc.money).toBe(0);
-        done();
-      });
-  });
+  it('duplicate findOne with One Transaction', spec(async () => {
+    await Bluebird.using(new Transaction().begin(), async (t) => {
+      const doc = await t.findOne(TestPlayer, {name: 'ekim'});
+      expect(doc['__t']).toBeDefined();
+      // console.log('first doc is ', doc);
+      doc.money += 500;
+      const secondTry = await t.findOne(TestPlayer, {name: 'ekim'});
+      // console.log('second doc is ', doc);
+      secondTry.money += 1000;
+    });
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    // console.log(doc.money);
+    expect(doc.money).toBe(1500);
+  }));
+
+  it('duplicate findOne with other conditions', spec( async() => {
+    await Bluebird.using(new Transaction().begin(), async (t) => {
+      const doc = await t.findOne(TestPlayer, {name: 'ekim'});
+      expect(doc['__t']).toBeDefined();
+      console.log('first doc is ', doc);
+      doc.money -= 500;
+      const sameButDiffConditionDoc = await t.findOne(TestPlayer, {age: 10});
+      console.log('second doc is ', doc);
+      sameButDiffConditionDoc.money -= 1000;
+    });
+    const doc = await TestPlayer.findOne({name: 'ekim'}, {}, {force: true}).exec();
+    expect(doc.money).toBe(0);
+  }));
 
   xit('concurrency test(retry)', done => {
     function addMoney(name: string, money: number) {
@@ -164,16 +137,15 @@ describe('transaction', () => {
       });
   });
 
-  it('delete all document', done => {
-    function removePlayerDoc(name: string) {
-      return Bluebird.using(new Transaction().begin(), t => {
-        return t.findOne(TestPlayer, {name: name})
-          .then((doc: any) => {
-            t.removeDoc(doc);
-          });
-        });
+  it('delete all document', spec(async () => {
+    async function removePlayerDoc(name: string) {
+      await Bluebird.using(new Transaction().begin(), async (t) => {
+        const doc = await t.findOne(TestPlayer, {name: name});
+        await t.removeDoc(doc);
+      });
     }
-    return Bluebird.all([removePlayerDoc('ekim'), removePlayerDoc('wokim')])
-      .then(() => done());
-  });
+    expect(async () => {
+      await Bluebird.all([removePlayerDoc('ekim'), removePlayerDoc('wokim')]);
+    }).not.toThrow();
+  }));
 });
