@@ -54,17 +54,27 @@ export class Transaction extends events.EventEmitter {
   }
 
   public begin() {
-    return Bluebird.try(() => {
+    return Bluebird.try(async () => {
       if (!Transaction.model) throw new Error('Not initialized exception');
       if (this.transaction) throw new Error('Transaction has already been started');
 
       const transaction = new Transaction.model();
       // TODO: should be fixed mongoose.d.ts
-      return Promise.resolve(transaction.save()).then((doc) => {
-        this.transaction = <any>doc;
-        debug('transaction created: %o', doc);
-        return this;
-      });
+      this.transaction = await transaction.save();
+      debug('transaction created: %o', this.transaction);
+      return this;
+    }).catch((e: Error) => {
+      // TODO we should handle every exception correctly in here,
+      // otherwise the uncaught exception will make the process down.
+      // Ref. http://bluebirdjs.com/docs/api/disposer.html#note-about-disposers-in-node
+
+      // ## Possible exceptions
+      // - Error('Not initialized exception')
+      // - Error('Transaction has already been started')
+      // - A potential error from transaction.save
+      if (e.message === 'Transaction has already been started') return;
+
+      throw e;
     }).disposer((tx, promise) => {
       if (promise.isFulfilled()) {
         return tx.commit()
@@ -79,8 +89,12 @@ export class Transaction extends events.EventEmitter {
     });
   }
 
-  static scope<R>(doInTransactionScope: (t: Transaction) => Promise<R>): Promise<R> {
+  static scope<R>(doInTransactionScope: (t: Transaction) => Bluebird<R> | Promise<R>): Bluebird<R> | Promise<R> {
     return Bluebird.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
+  }
+
+  public get _id(): mongoose.Types.ObjectId {
+    return this.transaction._id;
   }
 
   public async cancel(): Promise<void> {
@@ -239,13 +253,13 @@ export class Transaction extends events.EventEmitter {
 
     debug('tModel before ', opt['tModel'].collection.name);
 
-    debug('attempt write lock', opt);
+    debug('attempt write lock', _.omit(opt, 'tModel'));
     let doc: T;
     try {
       doc = await model.findOne(cond, fields, opt).exec();
     } catch (err) {
       debug('transaction err : retrycount is ', options['retrycount']);
-      if (err !== 'write lock' || options['retrycount'] === 0) throw err;
+      if (err.message !== 'write lock' || options['retrycount'] === 0) throw err;
 
       options['retrycount'] -= 1;
       await Bluebird.delay(RetryTimeTable[Math.floor(Math.random() * RetryTimeTable.length)]);

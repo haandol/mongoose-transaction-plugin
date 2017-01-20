@@ -1,5 +1,7 @@
 import * as mongoose from 'mongoose';
 import * as _debug from 'debug';
+import * as _ from 'lodash';
+
 import { Transaction } from './transaction';
 import { ObjectId } from './utils';
 
@@ -76,16 +78,15 @@ class PreFindOne {
     switch (transaction.state) {
       case 'init':
         this.cancelTransaction(tModel, tid);
-        break;
+        return tid;
 
       case 'pending':
         await this.recommitTransaction(tModel, transaction);
-        this._conditions['__t'] = {'$exists': false};
-        break;
+        return {'$exists': false};
 
       case 'committed':
         debug('already committed. ignore __t');
-        break;
+        return tid;
     }
   }
 
@@ -112,7 +113,7 @@ class PreFindOne {
     if (!this.options.transaction) return;
 
     debug('pre-findOne');
-    debug('options: %o', this.options);
+    debug('options: %o', _.omit(this.options, 'tModel'));
     debug('conditions: %o', this._conditions);
 
     const doc = await this.getMinimalDoc(this._conditions);
@@ -121,16 +122,17 @@ class PreFindOne {
 
     if (this.checkInSameTransaction(this.options.__t, doc.__t)) return;
 
-    if (doc.__t) {
-      await this.resolvePreviousTransaction(doc.__t);
-    }
-
     this._conditions['_id'] = doc._id;
+    this._conditions['__t'] = {$exists: false};
+    if (doc.__t) {
+      this._conditions['__t'] = await this.resolvePreviousTransaction(doc.__t);
+    }
     debug('conditions are modified', this._conditions);
 
-    const query = {__t: this.options.__t || ObjectId.get(Date.now())};
-    debug('update query is modified %o', query);
-    await this.update(query);
+    const updateQuery = {__t: this.options.__t || ObjectId.get(Date.now())};
+    // const updateQuery = {__t: this._conditions['__t']};
+    debug('update query is modified %o', updateQuery);
+    await this.update(updateQuery);
 
     debug('locking success');
     delete this._conditions['__t'];

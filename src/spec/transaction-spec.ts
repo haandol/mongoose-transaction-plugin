@@ -24,7 +24,16 @@ const debug = _debug('transaction:test');
 const conn: mongoose.Connection = mongoose.connection;
 let TestPlayer: mongoose.Model<ITestPlayer>;
 
-describe('transaction', () => {
+describe('Transaction-static', () => {
+  it('should throw by use of begin() before initialize', spec(async () => {
+    let tx;
+    tx = new Transaction();
+    // await tx.begin();
+    // this will process down
+  }));
+});
+
+describe('Transaction', () => {
   beforeAll(spec(async () => {
     await mockgoose(mongoose);
     await new Promise(resolve => mongoose.connect('test', resolve));
@@ -39,14 +48,22 @@ describe('transaction', () => {
   beforeEach(spec(async () => {
     const testPlayer1 = new TestPlayer({ name: 'ekim', age: 10, money: 0 });
     const testPlayer2 = new TestPlayer({ name: 'wokim', age: 50, money: 0 });
-    await Bluebird.using(new Transaction().begin(), t => {
+    await Transaction.scope(async (t) => {
       t.insertDoc(testPlayer1);
       t.insertDoc(testPlayer2);
     });
   }));
 
- it('could use write lock', spec(async () => {
-    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }, {transaction: true}).exec();
+  it('should ignore calling begin() twice in silent', spec(async () => {
+    await Transaction.scope(async (t) => {
+      await t.begin();
+      const d = await t.findOne(TestPlayer, {name: 'ekim'});
+      expect(d.name).toEqual('ekim');
+    });
+  }));
+
+  it('could use write lock', spec(async () => {
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }, { transaction: true }).exec();
     expect(doc['__t']).toBeDefined();
     debug('__t is %s', doc['__t']);
     debug('save document to detatch __t');
@@ -55,8 +72,8 @@ describe('transaction', () => {
     expect(saved['__t']).toBeUndefined();
   }));
 
- it('could commit two documents in same transaction', spec(async () => {
-    await Bluebird.using(new Transaction().begin(), async (tx) => {
+  it('could commit two documents in same transaction', spec(async () => {
+    await Transaction.scope(async (tx) => {
       const testPlayer = await tx.findOne(TestPlayer, { name: 'wokim' });
       debug('locking success: %o', testPlayer);
       testPlayer.money += 600;
@@ -64,8 +81,8 @@ describe('transaction', () => {
     expect(1).toBe(1);
   }));
 
- it('can not save without lock', spec(async () => {
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
+  it('can not save without lock', spec(async () => {
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, {}).exec();
     expect(doc['__t']).toBeUndefined();
     // console.log('doc is ', doc);
     // console.log('save document to detatch __t');
@@ -77,36 +94,36 @@ describe('transaction', () => {
     }
   }));
 
- it('duplicate findOne with One Transaction', spec(async () => {
-    await Bluebird.using(new Transaction().begin(), async (t) => {
-      const doc = await t.findOne(TestPlayer, {name: 'ekim'});
+  it('duplicate findOne with One Transaction', spec(async () => {
+    await Transaction.scope(async (t) => {
+      const doc = await t.findOne(TestPlayer, { name: 'ekim' });
       expect(doc['__t']).toBeDefined();
       // console.log('first doc is ', doc);
       doc.money += 500;
-      const secondTry = await t.findOne(TestPlayer, {name: 'ekim'});
+      const secondTry = await t.findOne(TestPlayer, { name: 'ekim' });
       // console.log('second doc is ', doc);
       secondTry.money += 1000;
     });
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, {}).exec();
     // console.log(doc.money);
     expect(doc.money).toBe(1500);
   }));
 
- it('duplicate findOne with other conditions', spec(async() => {
-    await Bluebird.using(new Transaction().begin(), async (t) => {
-      const doc = await t.findOne(TestPlayer, {name: 'ekim'});
+  it('duplicate findOne with other conditions', spec(async () => {
+    await Transaction.scope(async (t) => {
+      const doc = await t.findOne(TestPlayer, { name: 'ekim' });
       expect(doc['__t']).toBeDefined();
       // console.log('first doc is ', doc);
       doc.money += 500;
-      const sameButDiffConditionDoc = await t.findOne(TestPlayer, {age: 10});
+      const sameButDiffConditionDoc = await t.findOne(TestPlayer, { age: 10 });
       // console.log('second doc is ', doc);
       sameButDiffConditionDoc.money += 1000;
     });
-    const doc = await TestPlayer.findOne({name: 'ekim'}, {}).exec();
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, {}).exec();
     expect(doc.money).toBe(1500);
   }));
 
- it('should save new document without transaction', spec(async () => {
+  it('should save new document without transaction', spec(async () => {
     const doc = new TestPlayer({ name: 'newbie', age: 1 });
     try {
       await doc.save();
@@ -116,13 +133,13 @@ describe('transaction', () => {
     }
   }));
 
-  xit('concurrency test(retry)', done => {
+  it('should retry when it finds a live transaction', done => {
     function addMoney(name: string, money: number) {
-      return Bluebird.using(new Transaction().begin(), t => {
-        return t.findOne(TestPlayer, {name: name})
+      return Transaction.scope(t => {
+        return t.findOne(TestPlayer, { name: name })
           .then(doc => {
             doc.money += money;
-            console.log('addMoney!!!!! ', doc.money);
+            // console.log('addMoney!!!!! ', doc.money);
             return doc;
           });
       });
@@ -135,7 +152,7 @@ describe('transaction', () => {
       addMoney('ekim', 100)
     ])
       .then((results) => {
-        return Bluebird.resolve(TestPlayer.findOne({name: 'ekim'}, {}).exec());
+        return Bluebird.resolve(TestPlayer.findOne({ name: 'ekim' }, {}).exec());
       })
       .then(doc => {
         expect(doc.money).toBe(400);
@@ -143,10 +160,10 @@ describe('transaction', () => {
       });
   });
 
- it('delete all document', spec(async () => {
+  it('delete all document', spec(async () => {
     async function removePlayerDoc(name: string) {
-      await Bluebird.using(new Transaction().begin(), async (t) => {
-        const doc = await t.findOne(TestPlayer, {name: name});
+      await Transaction.scope(async (t) => {
+        const doc = await t.findOne(TestPlayer, { name: name });
         await t.removeDoc(doc);
       });
     }
@@ -158,25 +175,14 @@ describe('transaction', () => {
     }
   }));
 
- it('should try to resolve previous transaction', spec(async () => {
-    await Bluebird.using(new Transaction().begin(), async (t) => {
-      await t.findOne(TestPlayer, {name: 'ekim'});
-
-      await Bluebird.using(new Transaction().begin(), async (t) => {
-        const doc = await t.findOne(TestPlayer, {name: 'ekim'});
-        expect(doc).toBeDefined();
-      });
-    });
-  }));
-
- it('should throw an error to resolve an expired transaction with no history', spec(async () => {
+  it('should throw an error to resolve an expired transaction with no history', spec(async () => {
     const oldTransaction = new Transaction.getModel();
     oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
-    await TestPlayer.collection.update({name: 'ekim'}, {$set: {__t: oldTransaction._id}});
+    await TestPlayer.collection.update({ name: 'ekim' }, { $set: { __t: oldTransaction._id } });
 
-    await Bluebird.using(new Transaction().begin(), async (t) => {
+    await Transaction.scope(async (t) => {
       try {
-        await t.findOne(TestPlayer, {name: 'ekim'});
+        await t.findOne(TestPlayer, { name: 'ekim' });
         expect(true).toEqual(false);
       } catch (e) {
         expect(() => {
@@ -186,20 +192,61 @@ describe('transaction', () => {
     });
   }));
 
- it('should cancel expired transaction which is stated as `init`', spec(async () => {
+  it('should cancel expired transaction which is stated as `init`', spec(async () => {
     const oldTransaction = new Transaction.getModel();
     oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
     oldTransaction.state = 'init';
     await oldTransaction.save();
-    const savedOldTransaction = await Transaction.getModel.findOne({_id: oldTransaction._id});
+    const savedOldTransaction = await Transaction.getModel.findOne({ _id: oldTransaction._id });
     expect(savedOldTransaction.state).toEqual('init');
-    await TestPlayer.collection.update({name: 'ekim'}, {$set: {__t: oldTransaction._id}});
+    await TestPlayer.collection.update({ name: 'ekim' }, { $set: { __t: oldTransaction._id } });
 
-    await Bluebird.using(new Transaction().begin(), async (t) => {
-      await t.findOne(TestPlayer, {name: 'ekim'});
-      const canceledOldTransaction = await Transaction.getModel.findOne({_id: oldTransaction._id});
+    await Transaction.scope(async (t) => {
+      await t.findOne(TestPlayer, { name: 'ekim' });
+      const canceledOldTransaction = await Transaction.getModel.findOne({ _id: oldTransaction._id });
       expect(canceledOldTransaction.state).toEqual('canceled');
     });
+  }));
+
+  it('should recommit when it finds an old pending transaction', spec(async () => {
+    const oldTransaction = new Transaction.getModel();
+    oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
+    oldTransaction.state = 'pending';
+
+    const ekim = await TestPlayer.findOne({ name: 'ekim' });
+    oldTransaction.history.push({
+      col: TestPlayer.collection.name,
+      oid: ekim._id,
+      op: 'update',
+      query: JSON.stringify({ $set: { money: 1000 } })
+    });
+    await oldTransaction.save();
+    await TestPlayer.collection.update({ name: 'ekim' }, { $set: { __t: oldTransaction._id } });
+
+    await Transaction.scope(async (t) => {
+      const doc = await t.findOne(TestPlayer, { name: 'ekim' });
+      expect(doc.money).toEqual(1000);
+
+      const transaction = await Transaction.getModel.findOne({ _id: oldTransaction._id });
+      expect(transaction.state).toEqual('committed');
+    });
+  }));
+
+  it('should cancel transaction if the handler throws', spec(async () => {
+    let tid;
+    try {
+      await Transaction.scope(async (t) => {
+        tid = t._id;
+        const doc = await t.findOne(TestPlayer, { name: 'ekim' });
+        doc.money += 1000;
+        throw new Error('hahaha');
+      });
+    } catch (e) {
+      const transaction = await Transaction.getModel.findOne({ _id: tid });
+      expect(transaction).toEqual(null);
+      const ekim = await TestPlayer.findOne({ name: 'ekim' });
+      expect(ekim.money).toEqual(0);
+    }
   }));
 
   afterEach(spec(async () => {
