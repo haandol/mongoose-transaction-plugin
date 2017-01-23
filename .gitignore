@@ -1,3 +1,4 @@
+.vscode
 dist
 package
 mongoose-transaction-plugin-*.tgz
