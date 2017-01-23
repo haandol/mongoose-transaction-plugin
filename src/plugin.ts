@@ -3,8 +3,6 @@ import * as _debug from 'debug';
 import * as _ from 'lodash';
 
 import { Transaction } from './transaction';
-import { ObjectId } from './utils';
-
 (mongoose as any).Promise = Promise;
 
 const debug = _debug('transaction');
@@ -111,6 +109,7 @@ class PreFindOne {
 
   async run() {
     if (!this.options.transaction) return;
+    if (this.options.transaction && !this.options.__t) throw new Error('Called `findOne` outside of a transaction');
 
     debug('pre-findOne');
     debug('options: %o', _.omit(this.options, 'tModel'));
@@ -129,8 +128,7 @@ class PreFindOne {
     }
     debug('conditions are modified', this._conditions);
 
-    const updateQuery = {__t: this.options.__t || ObjectId.get(Date.now())};
-    // const updateQuery = {__t: this._conditions['__t']};
+    const updateQuery = {__t: this.options.__t};
     debug('update query is modified %o', updateQuery);
     await this.update(updateQuery);
 

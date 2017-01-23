@@ -48,8 +48,10 @@ describe('Transaction-static', () => {
       new mongoose.Schema({ name: String }).plugin(plugin).index('name', {unique: true});
     }).toThrowError(`Transaction doesn't support an unique index (name)`);
   }));
+});
 
-  xit('should not allow an unique index to SchemaType', spec(async () => {
+xdescribe('Transaction-static(turned-off)', () => {
+  it('should not allow an unique index to SchemaType', spec(async () => {
     // I have no idea how to override this.
     // @kson //2017-01-23
     expect(() => {
@@ -88,13 +90,28 @@ describe('Transaction', () => {
   }));
 
   it('could use write lock', spec(async () => {
-    const doc = await TestPlayer.findOne({ name: 'ekim' }, { _id: 1 }, { transaction: true }).exec();
+    const options = {
+      transaction: true,
+      __t: new mongoose.Types.ObjectId()
+    };
+    const doc = await TestPlayer.findOne({ name: 'ekim' }, {}, options).exec();
     expect(doc['__t']).toBeDefined();
     debug('__t is %s', doc['__t']);
-    debug('save document to detatch __t');
+    debug('save document to detach __t');
 
     const saved = await doc.save();
     expect(saved['__t']).toBeUndefined();
+  }));
+
+  it('should not allow `Model.findOne` with transaction out of a transaction disposer', spec(async () => {
+    try {
+      await TestPlayer.findOne({ name: 'ekim' }, {}, { transaction: true }).exec();
+      expect(true).toEqual(false);
+    } catch (e) {
+      expect(() => {
+        throw e;
+      }).toThrow();
+    }
   }));
 
   it('could commit two documents in same transaction', spec(async () => {
