@@ -9,7 +9,7 @@ let debug = _debug('transaction');
 let RETRYCOUNT = 5;
 let RetryTimeTable = [197, 173, 181, 149, 202];
 
-interface IHistory {
+export interface IHistory {
   // collection name
   col: string;
   // document's object id
@@ -20,7 +20,7 @@ interface IHistory {
   query: string;
 }
 
-interface ITransaction extends mongoose.Document {
+export interface ITransaction extends mongoose.Document {
   history: IHistory[];
   state: string;
 }
@@ -28,6 +28,9 @@ interface ITransaction extends mongoose.Document {
 export class Transaction extends events.EventEmitter {
   public static TRANSACTION_EXPIRE_THRESHOLD = 60 * 1000;
   private static model: mongoose.Model<ITransaction>;
+  private static connection: mongoose.Connection;
+
+  public static get getModel() { return Transaction.model; }
 
   private transaction: ITransaction;
   private participants: { op: string; doc: mongoose.Document; model?: any; cond?: Object;  }[] = [];
@@ -46,6 +49,7 @@ export class Transaction extends events.EventEmitter {
       history: [historySchema],
       state: { type: String, required: true, default: 'init' }
     });
+    this.connection = connection;
     this.model = connection.model<ITransaction>('Transaction', transactionSchema);
   }
 
@@ -62,9 +66,21 @@ export class Transaction extends events.EventEmitter {
         return this;
       });
     }).disposer((tx, promise) => {
-      if (promise.isFulfilled) return tx.commit();
-      return tx.cancel();
+      if (promise.isFulfilled()) {
+        return tx.commit()
+          .catch(e => {
+            console.log('tx.commit failed', e);
+          });
+      }
+      return tx.cancel()
+        .catch(e => {
+          console.log('tx.cancel failed', e);
+        });
     });
+  }
+
+  static scope<R>(doInTransactionScope: (t: Transaction) => Promise<R>): Promise<R> {
+    return Promise.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
   }
 
   public cancel(): Promise<void> {
@@ -88,29 +104,58 @@ export class Transaction extends events.EventEmitter {
     });
   }
 
+  public static recommit(transaction: ITransaction): Promise<void> {
+    let histories = transaction.history;
+    if (!histories) return Promise.resolve();
+
+    return Promise.all(histories.map(history => {
+      debug('find history collection: ', history.col, ' oid: ', history.oid);
+      return new Promise((resolve, reject) => {
+        this.connection.db.collection(history.col, function(err, collection) {
+          if (err) {
+            debug('Can not find collection: ', err);
+            resolve();
+          }
+          let query = JSON.parse(history.query);
+          query['$unset'] = query['$unset'] || {};
+          query['$unset']['__t'] = '';
+          debug('update recommit query is : ', query);
+          collection.findOneAndUpdate({_id: history.oid}, query, function(err, doc) {
+            debug('updated document ', doc);
+            resolve();
+          });
+        });
+      });
+    }))
+      .then(() => debug('transaction recommited!'));
+  }
+
   public commit(): Promise<void> {
     if (!this.transaction) return Promise.resolve();
 
     return Promise.all(this.participants.map(participant => {
       // TODO: should be fixed mongoose.d.ts
-      return Promise.resolve(participant.doc.validate(undefined)).then(() => {
-        debug('delta: %o', (<any>participant.doc).$__delta());
-        // TODO: 쿼리 제대로 만들기
-        let query: string;
-        if (participant.op === 'update') {
-          query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
-        } else if (participant.op === 'remove') {
-          query = JSON.stringify({ _id: '' });
-        } else if (participant.op === 'insert') {
-          query = JSON.stringify({});
-        }
-        this.transaction.history.push({
-          col: (<any>participant.doc).collection.name,
-          oid: participant.doc._id,
-          op: participant.op,
-          query: query
+      return new Promise((resolve, reject) => {
+        participant.doc.validate(err => err && reject(err) || resolve());
+      })
+        .then(() => {
+          debug('delta: %o', (<any>participant.doc).$__delta());
+          // TODO: 쿼리 제대로 만들기
+          let query: string;
+          if (participant.op === 'update') {
+            query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
+          } else if (participant.op === 'remove') {
+            query = JSON.stringify({ _id: '' });
+          } else if (participant.op === 'insert') {
+            query = JSON.stringify({});
+          }
+          this.transaction.history.push({
+            col: (<any>participant.doc).collection.name,
+            oid: participant.doc._id,
+            op: participant.op,
+            query: query
+          });
         });
-      });
     })).then(() => {
       debug('history generated: %o', this.transaction.history);
       this.transaction.state = 'pending';
@@ -128,14 +173,14 @@ export class Transaction extends events.EventEmitter {
         // 여기서부터는 무조껀 성공해야 한다
         // 유저한테 에러를 던져야 할까? 언젠가는 처리될텐데...?
         // eventually consistency는 보장된다
-        debug('실제 저장은 다 못했지만 언젠가 이 트랜젝션은 처리될 것이다', err);
+        debug('Fails to save whole transactions but they will be saved', err);
         return;
       });
     }).then(() => {
       debug('change state from (pending) to (committed)');
       this.transaction.state = 'committed';
       return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
-        debug('트랜젝션은 모두 처리되었지만 상태저장에 실패했을 뿐');
+        debug('All transactions were committed but failed to save their status');
         return;
       });
     }).then(doc => {
@@ -175,11 +220,17 @@ export class Transaction extends events.EventEmitter {
     })
       .then(doc => {
         if (doc) return doc;
-        if (!options) options = {};
-        if (options['retrycount'] === 0) options['retrycount'] = RETRYCOUNT;
+        if (!options) options = { retrycount: 5 };
+        if (options['retrycount'] === undefined) {
+          debug('set retrycount ', options, options['retrycount']);
+          options['retrycount'] = 5;
+        }
 
         let opt = _.cloneDeep(options || {});
         opt['__t'] = this.transaction._id;
+        opt['tModel'] = Transaction.getModel;
+
+        debug('tModel before ', opt['tModel']);
 
         debug('attempt write lock', opt);
         return Promise.resolve(model.findOne(cond, fields, opt).exec())
@@ -193,6 +244,7 @@ export class Transaction extends events.EventEmitter {
             return doc;
           })
           .catch(err => {
+            debug('transaction err : retrycount is ', options['retrycount']);
             if (err !== 'write lock' || options['retrycount'] === 0) return Promise.reject(err);
 
             options['retrycount'] -= 1;

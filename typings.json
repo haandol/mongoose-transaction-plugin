@@ -1,0 +1,12 @@
+{
+  "globalDependencies": {
+    "jasmine": "registry:dt/jasmine#2.2.0+20160621224255",
+    "node": "registry:dt/node#6.0.0+20160805072842"
+  },
+  "dependencies": {
+    "bluebird": "registry:npm/bluebird#3.3.4+20160802085254",
+    "debug": "registry:npm/debug#2.0.0+20160723033700",
+    "lodash": "registry:npm/lodash#4.0.0+20160723033700",
+    "mongoose": "registry:npm/mongoose#4.3.5+20160628072220"
+  }
+}
