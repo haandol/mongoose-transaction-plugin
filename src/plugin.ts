@@ -141,11 +141,32 @@ class PreFindOne {
   }
 }
 
-export async function plugin(schema: mongoose.Schema, options?: Object) {
+function ensureNoUnique(schema) {
+  const indexes = schema.indexes();
+  indexes.forEach(([name, options]) => {
+    if (options && options.unique) {
+      if (typeof name === 'object') {
+        name = Object.keys(name)[0];
+      }
+      throw new Error(`Transaction doesn't support an unique index (${name})`);
+    }
+  });
+}
+
+export function plugin(schema: mongoose.Schema, options?: Object) {
+  ensureNoUnique(schema);
+
   schema.add({
     __t: { type: mongoose.Schema.Types.ObjectId },
     // __new: { type: Boolean, default: true }
   });
+
+  const oldIndexMethod: any = schema.index;
+  schema.index = function (...args) {
+    const res = oldIndexMethod.apply(this, args);
+    ensureNoUnique(schema);
+    return res;
+  };
 
   schema.pre('save', function(next) {
     debug('pre-save');

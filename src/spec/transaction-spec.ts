@@ -31,6 +31,31 @@ describe('Transaction-static', () => {
     // await tx.begin();
     // this will process down
   }));
+  it('should not allow an unique index', spec(async () => {
+    expect(() => {
+      new mongoose.Schema({ name: String }).index('name', {unique: true}).plugin(plugin);
+    }).toThrowError(`Transaction doesn't support an unique index (name)`);
+
+    expect(() => {
+      new mongoose.Schema({ type: { type: Number, index: true, unique: true } }).plugin(plugin);
+    }).toThrowError(`Transaction doesn't support an unique index (type)`);
+
+    expect(() => {
+      new mongoose.Schema({ type: { type: Number, index: true } }).plugin(plugin);
+    }).not.toThrowError(`Transaction doesn't support an unique index (type)`);
+
+    expect(() => {
+      new mongoose.Schema({ name: String }).plugin(plugin).index('name', {unique: true});
+    }).toThrowError(`Transaction doesn't support an unique index (name)`);
+  }));
+
+  xit('should not allow an unique index to SchemaType', spec(async () => {
+    // I have no idea how to override this.
+    // @kson //2017-01-23
+    expect(() => {
+      new mongoose.Schema({ name: String }).plugin(plugin).path('name').index({unique: true});
+    }).toThrowError(`Transaction doesn't support an unique index (name)`);
+  }));
 });
 
 describe('Transaction', () => {
