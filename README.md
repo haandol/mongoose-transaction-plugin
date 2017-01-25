@@ -25,8 +25,8 @@ import { plugin, Transaction } from 'mongoose-transaction-plugin';
   Transaction.initialize(conn);
   
   await Transaction.scope(async t => {
-    const p = await t.findOne(TestPlayer, { name: 'wokim }).exec();
-    const d = await t.findOne(TestData, { money: { '$eq': 500 }}).exec();
+    const p = await t.findOne(TestPlayer, { name: 'wokim' });
+    const d = await t.findOne(TestData, { money: { '$eq': 500 }});
     p.name = 'wokim2';
     d.money += 600;
   });
