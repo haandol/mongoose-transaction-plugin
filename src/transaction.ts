@@ -1,13 +1,12 @@
 import * as mongoose from 'mongoose';
 import * as _ from 'lodash';
-import * as Promise from 'bluebird';
+import * as Bluebird from 'bluebird';
 import * as _debug from 'debug';
 import * as events from 'events';
-import { TransactionError, TransactionErrors } from './error';
 
-let debug = _debug('transaction');
-let RETRYCOUNT = 5;
-let RetryTimeTable = [197, 173, 181, 149, 202];
+const debug = _debug('transaction');
+const RETRYCOUNT = 5;
+const RetryTimeTable = [197, 173, 181, 149, 202];
 
 export interface IHistory {
   // collection name
@@ -23,6 +22,7 @@ export interface IHistory {
 export interface ITransaction extends mongoose.Document {
   history: IHistory[];
   state: string;
+  id: string;
 }
 
 export class Transaction extends events.EventEmitter {
@@ -38,14 +38,14 @@ export class Transaction extends events.EventEmitter {
   public static initialize(connection: mongoose.Connection) {
     if (this.model) return;
 
-    let historySchema = new mongoose.Schema({
+    const historySchema = new mongoose.Schema({
       col: { type: String, required: true },
       oid: { type: mongoose.Schema.Types.ObjectId, required: true },
       op: { type: String, required: true },
       query: { type: String, required: true }
     });
 
-    let transactionSchema = new mongoose.Schema({
+    const transactionSchema = new mongoose.Schema({
       history: [historySchema],
       state: { type: String, required: true, default: 'init' }
     });
@@ -54,17 +54,27 @@ export class Transaction extends events.EventEmitter {
   }
 
   public begin() {
-    return Promise.try(() => {
+    return Bluebird.try(async () => {
       if (!Transaction.model) throw new Error('Not initialized exception');
       if (this.transaction) throw new Error('Transaction has already been started');
 
-      let transaction = new Transaction.model();
+      const transaction = new Transaction.model();
       // TODO: should be fixed mongoose.d.ts
-      return Promise.resolve(transaction.save<ITransaction>()).then((doc) => {
-        this.transaction = <any>doc;
-        debug('transaction created: %o', doc);
-        return this;
-      });
+      this.transaction = await transaction.save();
+      debug('transaction created: %o', this.transaction);
+      return this;
+    }).catch((e: Error) => {
+      // TODO we should handle every exception correctly in here,
+      // otherwise the uncaught exception will make the process down.
+      // Ref. http://bluebirdjs.com/docs/api/disposer.html#note-about-disposers-in-node
+
+      // ## Possible exceptions
+      // - Error('Not initialized exception')
+      // - Error('Transaction has already been started')
+      // - A potential error from transaction.save
+      if (e.message === 'Transaction has already been started') return;
+
+      throw e;
     }).disposer((tx, promise) => {
       if (promise.isFulfilled()) {
         return tx.commit()
@@ -79,115 +89,127 @@ export class Transaction extends events.EventEmitter {
     });
   }
 
-  static scope<R>(doInTransactionScope: (t: Transaction) => Promise<R>): Promise<R> {
-    return Promise.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
+  static scope<R>(doInTransactionScope: (t: Transaction) => Bluebird<R> | Promise<R>): Bluebird<R> | Promise<R> {
+    return Bluebird.using<Transaction, R>(new Transaction().begin(), doInTransactionScope);
   }
 
-  public cancel(): Promise<void> {
-    if (!this.transaction) return Promise.resolve();
-    return Promise.try(() => {
-      if (this.transaction.state && this.transaction.state !== 'init') return;
+  public get _id(): mongoose.Types.ObjectId {
+    return this.transaction._id;
+  }
 
-      return Promise.resolve(this.transaction.remove()).then(() => {
-        return Promise.each(this.participants, participant => {
-          // TODO: Promise.defer is deprecated
-          // TODO: should be fixed mongoose.d.ts
-          if (participant.doc.isNew) return participant.doc['__t'] = undefined;
-          return Promise.resolve(participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec());
-        }).catch(err => {
-          debug('[warning] removing __t has been failed');
+  public async cancel(): Promise<void> {
+    if (!this.transaction) return;
+    if (this.transaction.state && this.transaction.state !== 'init') return;
+
+    await this.transaction.remove();
+    try {
+      await Bluebird.each(this.participants, async (participant) => {
+        if (participant.doc.isNew) return participant.doc['__t'] = undefined;
+        return await participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec();
+      });
+    } catch (e) {
+      debug('[warning] removing __t has been failed');
+    }
+
+    this.transaction = undefined;
+    this.participants = [];
+  }
+
+  private static async commitHistory(history: IHistory): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      return this.connection.db.collection(history.col, function(err, collection) {
+        if (err) {
+          debug('Can not find collection: ', err);
+          return resolve();
+        }
+        const query = JSON.parse(history.query);
+        query['$unset'] = query['$unset'] || {};
+        query['$unset']['__t'] = '';
+        debug('update recommit query is : ', query);
+        return collection.findOneAndUpdate({_id: history.oid}, query, function(err, doc) {
+          debug('updated document ', doc);
+          return resolve();
         });
       });
-    }).then(() => {
-      this.transaction = undefined;
-      this.participants = [];
     });
   }
 
-  public static recommit(transaction: ITransaction): Promise<void> {
-    let histories = transaction.history;
-    if (!histories) return Promise.resolve();
+  public static async recommit(transaction: ITransaction): Promise<void> {
+    const histories = transaction.history;
+    if (!histories) return;
 
-    return Promise.all(histories.map(history => {
+    await Bluebird.each(histories, async (history) => {
       debug('find history collection: ', history.col, ' oid: ', history.oid);
-      return new Promise((resolve, reject) => {
-        this.connection.db.collection(history.col, function(err, collection) {
-          if (err) {
-            debug('Can not find collection: ', err);
-            resolve();
-          }
-          let query = JSON.parse(history.query);
-          query['$unset'] = query['$unset'] || {};
-          query['$unset']['__t'] = '';
-          debug('update recommit query is : ', query);
-          collection.findOneAndUpdate({_id: history.oid}, query, function(err, doc) {
-            debug('updated document ', doc);
-            resolve();
-          });
-        });
-      });
-    }))
-      .then(() => debug('transaction recommited!'));
+      await Transaction.commitHistory(history);
+    });
+    debug('transaction recommited!');
   }
 
-  public commit(): Promise<void> {
-    if (!this.transaction) return Promise.resolve();
+  private static async validate(doc: any): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      return doc.validate(err => err && reject(err) || resolve());
+    });
+  }
 
-    return Promise.all(this.participants.map(participant => {
+  public async commit(): Promise<void> {
+    if (!this.transaction) return;
+
+    await Bluebird.each(this.participants, async (participant) => {
       // TODO: should be fixed mongoose.d.ts
-      return new Promise((resolve, reject) => {
-        participant.doc.validate(err => err && reject(err) || resolve());
-      })
-        .then(() => {
-          debug('delta: %o', (<any>participant.doc).$__delta());
-          // TODO: 쿼리 제대로 만들기
-          let query: string;
-          if (participant.op === 'update') {
-            query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1])
-          } else if (participant.op === 'remove') {
-            query = JSON.stringify({ _id: '' });
-          } else if (participant.op === 'insert') {
-            query = JSON.stringify({});
-          }
-          this.transaction.history.push({
-            col: (<any>participant.doc).collection.name,
-            oid: participant.doc._id,
-            op: participant.op,
-            query: query
-          });
-        });
-    })).then(() => {
-      debug('history generated: %o', this.transaction.history);
-      this.transaction.state = 'pending';
-      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
-        this.transaction.state = 'init';
-        throw err;
+      await Transaction.validate(participant.doc);
+
+      debug('delta: %o', (<any>participant.doc).$__delta());
+      // TODO: 쿼리 제대로 만들기
+      let query: string;
+      if (participant.op === 'update') {
+        query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
+      } else if (participant.op === 'remove') {
+        query = JSON.stringify({ _id: '' });
+      } else if (participant.op === 'insert') {
+        query = JSON.stringify({});
+      }
+      this.transaction.history.push({
+        col: (<any>participant.doc).collection.name,
+        oid: participant.doc._id,
+        op: participant.op,
+        query: query
       });
-    }).then(doc => {
-      this.transaction = <any>doc;
-      debug('apply participants\' changes');
-      return Promise.map(this.participants, participant => {
-        if (participant.op === 'remove') return participant.doc.remove();
-        else return participant.doc.save();
-      }).catch(err => {
-        // 여기서부터는 무조껀 성공해야 한다
-        // 유저한테 에러를 던져야 할까? 언젠가는 처리될텐데...?
-        // eventually consistency는 보장된다
-        debug('Fails to save whole transactions but they will be saved', err);
-        return;
+    });
+    debug('history generated: %o', this.transaction.history);
+
+    this.transaction.state = 'pending';
+    try {
+      this.transaction = await this.transaction.save();
+    } catch (err) {
+      this.transaction.state = 'init';
+      throw err;
+    }
+
+    debug('apply participants\' changes');
+    try {
+      await Bluebird.map(this.participants, async (participant) => {
+        if (participant.op === 'remove') return await participant.doc.remove();
+        else return await participant.doc.save();
       });
-    }).then(() => {
-      debug('change state from (pending) to (committed)');
-      this.transaction.state = 'committed';
-      return Promise.resolve(this.transaction.save<ITransaction>()).catch(err => {
-        debug('All transactions were committed but failed to save their status');
-        return;
-      });
-    }).then(doc => {
+    } catch (err) {
+      // 여기서부터는 무조껀 성공해야 한다
+      // 유저한테 에러를 던져야 할까? 언젠가는 처리될텐데...?
+      // eventually consistency는 보장된다
+      debug('Fails to save whole transactions but they will be saved', err);
+    }
+
+    debug('change state from (pending) to (committed)');
+    this.transaction.state = 'committed';
+    try {
+      const doc = await this.transaction.save();
       debug('transaction committed', doc);
-      this.transaction = undefined;
-      this.participants = [];
-    })/*.catch(err => {
+    } catch (err) {
+      debug('All transactions were committed but failed to save their status');
+    }
+
+    this.transaction = undefined;
+    this.participants = [];
+    /*.catch(err => {
       if (this.transaction.state !== 'init') throw err;
       return this.cancel().then(() => { throw err; });
     })*/;
@@ -205,52 +227,52 @@ export class Transaction extends events.EventEmitter {
   public removeDoc(doc: mongoose.Document) {
     if (!this.transaction) throw new Error('Could not find any transaction');
 
-    let id: mongoose.Types.ObjectId = doc['__t'];
+    const id: mongoose.Types.ObjectId = doc['__t'];
     if (!id || id.toHexString() !== this.transaction.id) throw new Error('락이 이상함');
     this.participants.push({ op: 'remove', doc: doc });
   }
 
-  public findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object): Promise<T> {
-    return Promise.try(() => {
-      if (!this.transaction) throw new Error('Could not find any transaction');
-      let p = _.find(this.participants, p => {
-        return p.model === model && JSON.stringify(cond) === JSON.stringify(p.cond);
-      });
-      if (p) return <T>p.doc;
-    })
-      .then(doc => {
-        if (doc) return doc;
-        if (!options) options = { retrycount: 5 };
-        if (options['retrycount'] === undefined) {
-          debug('set retrycount ', options, options['retrycount']);
-          options['retrycount'] = 5;
-        }
+  public async findOne<T extends mongoose.Document>(model: mongoose.Model<T>, cond: Object, fields?: Object, options?: Object): Promise<T> {
+    if (!this.transaction) throw new Error('Could not find any transaction');
 
-        let opt = _.cloneDeep(options || {});
-        opt['__t'] = this.transaction._id;
-        opt['tModel'] = Transaction.getModel;
+    const p = _.find(this.participants, p => {
+      return p.model === model && JSON.stringify(cond) === JSON.stringify(p.cond);
+    });
+    if (p && p.doc) return p.doc as T;
 
-        debug('tModel before ', opt['tModel']);
+    if (!options) options = { retrycount: RETRYCOUNT };
+    if (options['retrycount'] === undefined) {
+      debug('set retrycount ', options, options['retrycount']);
+      options['retrycount'] = RETRYCOUNT;
+    }
 
-        debug('attempt write lock', opt);
-        return Promise.resolve(model.findOne(cond, fields, opt).exec())
-          .then(doc => {
-            if (!doc) return;
-            let p = _.find(this.participants, p => {
-              return p.model === model && p.doc._id.equals(doc._id);
-            })
-            if (p) return <T>p.doc;
-            this.participants.push({op: 'update', doc: doc, model: model, cond: cond});
-            return doc;
-          })
-          .catch(err => {
-            debug('transaction err : retrycount is ', options['retrycount']);
-            if (err !== 'write lock' || options['retrycount'] === 0) return Promise.reject(err);
+    const opt = _.cloneDeep(options || {});
+    opt['__t'] = this.transaction._id;
+    opt['tModel'] = Transaction.getModel;
+    opt['transaction'] = true;
 
-            options['retrycount'] -= 1;
-            return Promise.delay(RetryTimeTable[Math.floor(Math.random()*RetryTimeTable.length)])
-              .then(() => this.findOne(model, cond, fields, options));
-          });
-      });
+    debug('tModel before ', opt['tModel'].collection.name);
+
+    debug('attempt write lock', _.omit(opt, 'tModel'));
+    let doc: T;
+    try {
+      doc = await model.findOne(cond, fields, opt).exec();
+    } catch (err) {
+      debug('transaction err : retrycount is ', options['retrycount']);
+      if (err.message !== 'write lock' || options['retrycount'] === 0) throw err;
+
+      options['retrycount'] -= 1;
+      await Bluebird.delay(RetryTimeTable[Math.floor(Math.random() * RetryTimeTable.length)]);
+      return await this.findOne(model, cond, fields, options);
+    }
+    if (!doc) return;
+
+    const withSameId = _.find(this.participants, p => {
+      return p.model === model && p.doc._id.equals(doc._id);
+    });
+    if (withSameId) return withSameId.doc as T;
+
+    this.participants.push({op: 'update', doc: doc, model: model, cond: cond});
+    return doc;
   }
 }
