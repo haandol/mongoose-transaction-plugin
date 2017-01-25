@@ -7,23 +7,29 @@ A mongoose plugin for transaction-like semantics between multiple documents.
 [![Coverage Status](https://coveralls.io/repos/github/spearhead-ea/mongoose-transaction-plugin/badge.svg?branch=feat-1.0)](https://coveralls.io/github/spearhead-ea/mongoose-transaction-plugin?branch=feat-1.0)
 
 ## Example
+
 ```typescript
-let conn = mongoose.createConnection(process.env.MONGODB || 'mongodb://192.168.99.100:27017');
-let transaction = new Transaction(conn);
-transaction.begin().then(() => {
-  return Promise.props({
-    testPlayer: transaction.findOne(TestPlayer, { name: 'wokim' }, { _id: 1, name: 1 }),
-    testData: transaction.findOne(TestData, { money: { '$eq' : 500 } })
+import { plugin, Transaction } from 'mongoose-transaction-plugin';
+
+(async function () {
+  await new Promise(cb => mongoose.connect(process.env.MONGODB, cb));
+  
+  const testPlayerSchema = new mongoose.schema({ name: String });
+  testPlayerSchema.plugin(plugin);
+  const TestPlayer = conn.model('TestPlayer', testPlayerSchema);
+  
+  const testDataSchema = new mongoose.schema({ money: Number });
+  testDataSchema.plugin(plugin);
+  const TestData = conn.model('TestData', testDataSchema);
+  
+  Transaction.initialize(conn);
+  
+  await Transaction.scope(async t => {
+    const p = await t.findOne(TestPlayer, { name: 'wokim }).exec();
+    const d = await t.findOne(TestData, { money: { '$eq': 500 }}).exec();
+    p.name = 'wokim2';
+    d.money += 600;
   });
-}).then(results => {
-  let testPlayer = <ITestPlayer>results.testPlayer;
-  let testData = <ITestData>results.testData;
+})();
 
-  testPlayer.name = 'wokim2';
-  testData.money += 600;
-
-  return transaction.commit();
-}).then(() => {
-  done();
-}).catch(err => done.fail(err));
 ```
