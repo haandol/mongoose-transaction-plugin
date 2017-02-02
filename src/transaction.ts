@@ -47,7 +47,7 @@ export class Transaction extends events.EventEmitter {
 
     const transactionSchema = new mongoose.Schema({
       history: [historySchema],
-      state: { type: String, required: true, default: 'init' }
+      state: { type: String, required: true, default: 'init', index: true }
     });
     this.connection = connection;
     this.model = connection.model<ITransaction>('Transaction', transactionSchema);

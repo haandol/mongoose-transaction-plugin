@@ -81,6 +81,13 @@ describe('Transaction', () => {
     });
   }));
 
+  it('should index state', spec(async () => {
+    const indexes = Transaction.getModel.schema.indexes();
+    const [fields, options] = indexes[0];
+    expect(fields.state).toEqual(1);
+    expect(options.background).toBeTruthy();
+  }));
+
   it('should ignore calling begin() twice in silent', spec(async () => {
     await Transaction.scope(async (t) => {
       await t.begin();
