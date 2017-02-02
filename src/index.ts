@@ -1,4 +1,4 @@
-import 'source-map-support/register'
+import 'source-map-support/register';
 
 export * from './plugin';
 export * from './transaction';
