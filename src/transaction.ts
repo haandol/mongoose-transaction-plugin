@@ -199,12 +199,14 @@ export class Transaction extends events.EventEmitter {
     }
 
     debug('change state from (pending) to (committed)');
-    this.transaction.state = 'committed';
+    
     try {
-      const doc = await this.transaction.save();
-      debug('transaction committed', doc);
+      //this.transaction.state = 'committed';
+      //const doc = await this.transaction.save();      
+      //debug('transaction committed', doc);
+      await this.transaction.remove();
     } catch (err) {
-      debug('All transactions were committed but failed to save their status');
+      debug('All transactions were committed but failed to remove the document');
     }
 
     this.transaction = undefined;
