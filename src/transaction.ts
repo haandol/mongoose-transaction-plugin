@@ -204,6 +204,7 @@ export class Transaction extends events.EventEmitter {
       //this.transaction.state = 'committed';
       //const doc = await this.transaction.save();      
       //debug('transaction committed', doc);
+      //branch 이름을 바꿔서 올리면서 어떻게 변경해야 할지 자문을 구해보자
       await this.transaction.remove();
     } catch (err) {
       debug('All transactions were committed but failed to remove the document');
