@@ -8,6 +8,8 @@ const debug = _debug('transaction');
 const RETRYCOUNT = 5;
 const RetryTimeTable = [197, 173, 181, 149, 202];
 
+export const TRANSACTION_KEEP_COMMITTED = (process.env.TRANSACTION_KEEP_COMMITTED || false);
+
 export interface IHistory {
   // collection name
   col: string;
@@ -191,31 +193,22 @@ export class Transaction extends events.EventEmitter {
         if (participant.op === 'remove') return await participant.doc.remove();
         else return await participant.doc.save();
       });
-    } catch (err) {
-      // 여기서부터는 무조껀 성공해야 한다
-      // 유저한테 에러를 던져야 할까? 언젠가는 처리될텐데...?
-      // eventually consistency는 보장된다
-      debug('Fails to save whole transactions but they will be saved', err);
-    }
 
-    debug('change state from (pending) to (committed)');
-    
-    try {
-      //this.transaction.state = 'committed';
-      //const doc = await this.transaction.save();      
-      //debug('transaction committed', doc);
-      //branch 이름을 바꿔서 올리면서 어떻게 변경해야 할지 자문을 구해보자
-      await this.transaction.remove();
+      debug('transaction committed');
+      // TRANSACTION_KEEP_COMMITTED 값에 따라 Transaction Document를 지우거나 갱신한다.
+      if (!(TRANSACTION_KEEP_COMMITTED)) {
+        await this.transaction.remove();        
+      } else {
+        this.transaction.state = 'committed';
+        await this.transaction.save();        
+      }
     } catch (err) {
-      debug('All transactions were committed but failed to remove the document');
+      // 하나라도 실패하면 pending 상태로 recommit 처리된다.
+      debug('Fails to save whole transactions but they will be saved', err);
     }
 
     this.transaction = undefined;
     this.participants = [];
-    /*.catch(err => {
-      if (this.transaction.state !== 'init') throw err;
-      return this.cancel().then(() => { throw err; });
-    })*/;
   }
 
   // 생성될 document를 transaction에 참가시킴

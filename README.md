@@ -33,3 +33,8 @@ import { plugin, Transaction } from 'mongoose-transaction-plugin';
 })();
 
 ```
+# Environment Variables
+
+| Environment                  | Type                  | Notes
+| ---------------------------- | --------------------- | -----
+| `TRANSACTION_KEEP_COMMITTED` | bool                  | 커밋된 트랜젝션 오브젝트를 보관할지 여부
