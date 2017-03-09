@@ -7,8 +7,7 @@ import * as events from 'events';
 const debug = _debug('transaction');
 const RETRYCOUNT = 5;
 const RetryTimeTable = [197, 173, 181, 149, 202];
-
-export const TRANSACTION_KEEP_COMMITTED = (process.env.TRANSACTION_KEEP_COMMITTED === 'true' || false);
+const TRANSACTION_KEEP_COMMITTED = (process.env.TRANSACTION_KEEP_COMMITTED === 'true' || false);
 
 export interface IHistory {
   // collection name
