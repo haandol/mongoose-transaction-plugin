@@ -37,4 +37,4 @@ import { plugin, Transaction } from 'mongoose-transaction-plugin';
 
 | Environment                  | Type                  | Notes
 | ---------------------------- | --------------------- | -----
-| `TRANSACTION_KEEP_COMMITTED` | true / false          | 커밋된 트랜젝션 오브젝트를 보관할지 여부
+| `TRANSACTION_KEEP_COMMITTED` | true / false          | (false) 커밋된 트랜젝션 오브젝트를 보관할지 여부
