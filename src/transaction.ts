@@ -195,7 +195,7 @@ export class Transaction extends events.EventEmitter {
 
       debug('transaction committed');
       // TRANSACTION_KEEP_COMMITTED 값에 따라 Transaction Document를 지우거나 갱신한다.
-      if (!(TRANSACTION_KEEP_COMMITTED)) {
+      if (!TRANSACTION_KEEP_COMMITTED) {
         await this.transaction.remove();        
       } else {
         this.transaction.state = 'committed';
