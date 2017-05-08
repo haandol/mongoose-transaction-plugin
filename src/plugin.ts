@@ -85,6 +85,9 @@ class PreFindOne {
       case 'committed':
         debug('already committed. ignore __t');
         return tid;
+
+      case 'canceled':
+        return tid;
     }
   }
 
