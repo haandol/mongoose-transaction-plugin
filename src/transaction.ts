@@ -111,7 +111,6 @@ export class Transaction extends events.EventEmitter {
       debug('[warning] removing __t has been failed');
       return this.resetTransaction();
     }
-    
     await this.transaction.remove();
     return this.resetTransaction();
   }
