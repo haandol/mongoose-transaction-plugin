@@ -87,6 +87,8 @@ class PreFindOne {
         return tid;
 
       case 'canceled':
+        // TODO :  비정상 상태로 인하여 canceled가 남는 경우 transcation document는 제거 되지 않고 현재 남겨져 있다.
+        debug('already canceled. ignore __t');
         return tid;
     }
   }
