@@ -101,17 +101,16 @@ export class Transaction extends events.EventEmitter {
   public async cancel(): Promise<void> {
     if (!this.transaction) return;
     if (this.transaction.state && this.transaction.state !== 'init') return;
-
-    await this.transaction.remove();
+ 
     try {
       await Bluebird.each(this.participants, async (participant) => {
         if (participant.doc.isNew) return participant.doc['__t'] = undefined;
         return await participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec();
       });
+      await this.transaction.remove();
     } catch (e) {
       debug('[warning] removing __t has been failed');
     }
-
     this.transaction = undefined;
     this.participants = [];
   }
