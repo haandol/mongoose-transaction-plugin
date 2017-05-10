@@ -107,15 +107,10 @@ export class Transaction extends events.EventEmitter {
         if (participant.doc.isNew) return participant.doc['__t'] = undefined;
         return await participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec();
       });
+      await this.transaction.remove();
     } catch (e) {
       debug('[warning] removing __t has been failed');
-      return this.resetTransaction();
     }
-    await this.transaction.remove();
-    return this.resetTransaction();
-  }
-
-  private async resetTransaction(): Promise<void> {
     this.transaction = undefined;
     this.participants = [];
   }
