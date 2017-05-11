@@ -14,15 +14,19 @@ export function spec(assertion: () => Promise<void>) {
   };
 }
 
-interface ITestPlayer extends mongoose.Document {
-  name: string;
-  age: number;
-  money: number;
+async function expectToThrow(fn, expected?: any) {
+  try {
+    await fn();
+    expect(false).toEqual(true);
+  } catch (e) {
+    expect(() => {
+      throw e;
+    }).toThrow();
+  }
 }
 
 const debug = _debug('transaction:test');
 const conn: mongoose.Connection = mongoose.connection;
-let TestPlayer: mongoose.Model<ITestPlayer>;
 
 describe('Transaction-static', () => {
   it('should throw by use of begin() before initialize', spec(async () => {
@@ -61,6 +65,14 @@ xdescribe('Transaction-static(turned-off)', () => {
 });
 
 describe('Transaction', () => {
+  interface ITestPlayer extends mongoose.Document {
+    name: string;
+    age: number;
+    money: number;
+  }
+
+  let TestPlayer: mongoose.Model<ITestPlayer>;
+
   beforeAll(spec(async () => {
     await mockgoose(mongoose);
     await new Promise(resolve => mongoose.connect('test', resolve));
@@ -76,8 +88,8 @@ describe('Transaction', () => {
     const testPlayer1 = new TestPlayer({ name: 'ekim', age: 10, money: 0 });
     const testPlayer2 = new TestPlayer({ name: 'wokim', age: 50, money: 0 });
     await Transaction.scope(async (t) => {
-      t.insertDoc(testPlayer1);
-      t.insertDoc(testPlayer2);
+      await t.insertDoc(testPlayer1);
+      await t.insertDoc(testPlayer2);
     });
   }));
 
@@ -305,5 +317,53 @@ describe('Transaction', () => {
   afterAll(spec(async () => {
     await new Promise((resolve) => (mongoose as any).unmock(resolve));
     await new Promise(resolve => mongoose.disconnect(resolve));
+  }));
+});
+
+describe('Transaction(_id uniqueness)', () => {
+  interface ITestUniqIdx extends mongoose.Document {
+    name: string;
+  }
+
+  let TestUniqIdx: mongoose.Model<ITestUniqIdx>;
+  beforeAll(spec(async () => {
+    await mockgoose(mongoose);
+    await new Promise(resolve => mongoose.connect('test', resolve));
+
+    const testUniqIdxSchema = new mongoose.Schema({ name: String, type: String });
+    testUniqIdxSchema.plugin(plugin);
+    TestUniqIdx = conn.model<ITestUniqIdx>('TestUniqIdx', testUniqIdxSchema);
+
+    Transaction.initialize(conn);
+  }));
+
+  afterEach(spec(async () => {
+    await new Promise((resolve) => mockgoose.reset(() => resolve()));
+  }));
+
+  afterAll(spec(async () => {
+    await new Promise((resolve) => (mongoose as any).unmock(resolve));
+    await new Promise(resolve => mongoose.disconnect(resolve));
+  }));
+
+  it('SHOULD find _id conflict', spec(async () => {
+    await expectToThrow(async () => {
+      await Transaction.scope(async t => {
+        const oid = new mongoose.Types.ObjectId();
+        await t.insertDoc(new TestUniqIdx({ _id: oid }));
+        await t.insertDoc(new TestUniqIdx({ _id: oid }));
+      });
+    });
+    expect(await TestUniqIdx.count({})).toEqual(0);
+  }));
+
+  it('COULD update a doc after t.insertDoc', spec(async () => {
+    await Transaction.scope(async t => {
+      const a = new TestUniqIdx();
+      await t.insertDoc(a);
+      a.name = 'david';
+    });
+    const a = await TestUniqIdx.findOne();
+    expect(a.name).toEqual('david');
   }));
 });

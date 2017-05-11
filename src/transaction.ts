@@ -26,6 +26,13 @@ export interface ITransaction extends mongoose.Document {
   id: string;
 }
 
+interface IParticipant {
+  op: string;
+  doc: mongoose.Document;
+  model?: any;
+  cond?: Object;
+};
+
 export class Transaction extends events.EventEmitter {
   public static TRANSACTION_EXPIRE_THRESHOLD = 60 * 1000;
   private static model: mongoose.Model<ITransaction>;
@@ -34,7 +41,7 @@ export class Transaction extends events.EventEmitter {
   public static get getModel() { return Transaction.model; }
 
   private transaction: ITransaction;
-  private participants: { op: string; doc: mongoose.Document; model?: any; cond?: Object;  }[] = [];
+  private participants: IParticipant[] = [];
 
   public static initialize(connection: mongoose.Connection) {
     if (this.model) return;
@@ -101,10 +108,13 @@ export class Transaction extends events.EventEmitter {
   public async cancel(): Promise<void> {
     if (!this.transaction) return;
     if (this.transaction.state && this.transaction.state !== 'init') return;
- 
+
     try {
       await Bluebird.each(this.participants, async (participant) => {
-        if (participant.doc.isNew) return participant.doc['__t'] = undefined;
+        if (participant.op === 'insert') {
+          participant.doc['__t'] = undefined;
+          return await participant.doc.remove();
+        }
         return await participant.doc.update({$unset: {__t: ''}}, { w: 1 }, undefined).exec();
       });
       await this.transaction.remove();
@@ -151,10 +161,8 @@ export class Transaction extends events.EventEmitter {
     });
   }
 
-  public async commit(): Promise<void> {
-    if (!this.transaction) return;
-
-    await Bluebird.each(this.participants, async (participant) => {
+  private static async makeHistory(participants: IParticipant[], transaction: ITransaction) {
+    await Bluebird.each(participants, async (participant) => {
       // TODO: should be fixed mongoose.d.ts
       await Transaction.validate(participant.doc);
 
@@ -168,13 +176,19 @@ export class Transaction extends events.EventEmitter {
       } else if (participant.op === 'insert') {
         query = JSON.stringify({});
       }
-      this.transaction.history.push({
+      transaction.history.push({
         col: (<any>participant.doc).collection.name,
         oid: participant.doc._id,
         op: participant.op,
         query: query
       });
     });
+  }
+
+  public async commit(): Promise<void> {
+    if (!this.transaction) return;
+
+    await Transaction.makeHistory(this.participants, this.transaction);
     debug('history generated: %o', this.transaction.history);
 
     this.transaction.state = 'pending';
@@ -195,10 +209,10 @@ export class Transaction extends events.EventEmitter {
       debug('transaction committed');
       // TRANSACTION_KEEP_COMMITTED 값에 따라 Transaction Document를 지우거나 갱신한다.
       if (!TRANSACTION_KEEP_COMMITTED) {
-        await this.transaction.remove();        
+        await this.transaction.remove();
       } else {
         this.transaction.state = 'committed';
-        await this.transaction.save();        
+        await this.transaction.save();
       }
     } catch (err) {
       // 하나라도 실패하면 pending 상태로 recommit 처리된다.
@@ -210,8 +224,10 @@ export class Transaction extends events.EventEmitter {
   }
 
   // 생성될 document를 transaction에 참가시킴
-  public insertDoc(doc: mongoose.Document) {
+  public async insertDoc(doc: mongoose.Document) {
     if (!this.transaction) throw new Error('Could not find any transaction');
+
+    await doc.save();
 
     doc['__t'] = this.transaction._id;
     this.participants.push({ op: 'insert', doc: doc });
