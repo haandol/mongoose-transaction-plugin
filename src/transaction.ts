@@ -15,7 +15,7 @@ export interface IHistory {
   // document's object id
   oid: mongoose.Types.ObjectId;
   // insert, update, remove
-  op: string;
+  op: 'insert' | 'remove' | 'update';
   // update query string.
   query: string;
 }
@@ -27,7 +27,7 @@ export interface ITransaction extends mongoose.Document {
 }
 
 interface IParticipant {
-  op: string;
+  op: 'insert' | 'remove' | 'update';
   doc: mongoose.Document;
   model?: any;
   cond?: Object;
@@ -127,17 +127,33 @@ export class Transaction extends events.EventEmitter {
 
   private static async commitHistory(history: IHistory): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      return this.connection.db.collection(history.col, function(err, collection) {
+      return this.connection.db.collection(history.col, async function(err, collection) {
         if (err) {
           debug('Can not find collection: ', err);
           return resolve();
         }
+        if (history.op === 'remove') {
+          const res = await collection.deleteOne({_id: history.oid});
+          if (res.deletedCount !== 1) {
+            debug('transaction remove failed');
+          }
+          return resolve();
+        }
         const query = JSON.parse(history.query);
+        if (history.op === 'insert') {
+          delete query['$set']['__t'];
+          if (_.isEmpty(query['$set'])) {
+            delete query['$set'];
+          }
+        }
         query['$unset'] = query['$unset'] || {};
         query['$unset']['__t'] = '';
         debug('update recommit query is : ', query);
+        if (query._id) {
+          query._id = new mongoose.Types.ObjectId(query._id);
+        }
         return collection.findOneAndUpdate({_id: history.oid}, query, function(err, doc) {
-          debug('updated document ', doc);
+          debug('updated document ', err, doc);
           return resolve();
         });
       });
@@ -174,7 +190,8 @@ export class Transaction extends events.EventEmitter {
       } else if (participant.op === 'remove') {
         query = JSON.stringify({ _id: '' });
       } else if (participant.op === 'insert') {
-        query = JSON.stringify({});
+        // query = JSON.stringify(participant.doc.toObject());
+        query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
       }
       transaction.history.push({
         col: (<any>participant.doc).collection.name,

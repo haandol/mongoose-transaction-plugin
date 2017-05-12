@@ -28,7 +28,7 @@ async function expectToThrow(fn, expected?: any) {
 const debug = _debug('transaction:test');
 const conn: mongoose.Connection = mongoose.connection;
 
-describe('Transaction-static', () => {
+xdescribe('Transaction-static', () => {
   it('should throw by use of begin() before initialize', spec(async () => {
     let tx;
     tx = new Transaction();
@@ -64,7 +64,7 @@ xdescribe('Transaction-static(turned-off)', () => {
   }));
 });
 
-describe('Transaction', () => {
+xdescribe('Transaction', () => {
   interface ITestPlayer extends mongoose.Document {
     name: string;
     age: number;
@@ -320,7 +320,7 @@ describe('Transaction', () => {
   }));
 });
 
-describe('Transaction(_id uniqueness)', () => {
+xdescribe('Transaction(_id uniqueness)', () => {
   interface ITestUniqIdx extends mongoose.Document {
     name: string;
   }
@@ -365,5 +365,80 @@ describe('Transaction(_id uniqueness)', () => {
     });
     const a = await TestUniqIdx.findOne();
     expect(a.name).toEqual('david');
+  }));
+});
+
+fdescribe('Transaction(recommit)', () => {
+  interface ITestRecommit extends mongoose.Document {
+    name: string;
+  }
+
+  let TestRecommit: mongoose.Model<ITestRecommit>;
+  beforeAll(spec(async () => {
+    await mockgoose(mongoose);
+    await new Promise(resolve => mongoose.connect('test', resolve));
+
+    const testRecommitSchema = new mongoose.Schema({ name: String, type: String });
+    testRecommitSchema.plugin(plugin);
+    TestRecommit = conn.model<ITestRecommit>('TestRecommit', testRecommitSchema);
+
+    Transaction.initialize(conn);
+  }));
+
+  afterEach(spec(async () => {
+    await new Promise((resolve) => mockgoose.reset(() => resolve()));
+  }));
+
+  afterAll(spec(async () => {
+    await new Promise((resolve) => (mongoose as any).unmock(resolve));
+    await new Promise(resolve => mongoose.disconnect(resolve));
+  }));
+
+  it('SHOULD be able to recommit new doc', spec(async () => {
+    const transaction = new Transaction();
+    const t = new Transaction.getModel();
+    (transaction as any).transaction = await t.save();
+    const tui = new TestRecommit();
+    await transaction.insertDoc(tui);
+    tui.name = 'XXXXX';
+
+    await (Transaction as any).makeHistory((transaction as any).participants, t);
+    console.log(t);
+    await Transaction.recommit(t);
+    const a = await TestRecommit.findOne();
+    console.log(a);
+    expect(a.name).toEqual('XXXXX');
+  }));
+
+  fit('SHOULD be able to recommit new doc without delta', spec(async () => {
+    const transaction = new Transaction();
+    const t = new Transaction.getModel();
+    (transaction as any).transaction = await t.save();
+    const tui = new TestRecommit({name: 'XXXXX'});
+    await transaction.insertDoc(tui);
+    console.log('asdfasdf', await TestRecommit.findOne());
+
+    await (Transaction as any).makeHistory((transaction as any).participants, t);
+    console.log(t);
+    await Transaction.recommit(t);
+    const a = await TestRecommit.findOne();
+    console.log(a);
+    expect(a.name).toEqual('XXXXX');
+  }));
+
+  it('SHOULD be able to remove doc', spec(async () => {
+    const before = new TestRecommit();
+    await before.save();
+
+    const transaction = new Transaction();
+    const t = new Transaction.getModel();
+    (transaction as any).transaction = await t.save();
+    const after = await transaction.findOne(TestRecommit, {});
+    await transaction.removeDoc(after);
+
+    await (Transaction as any).makeHistory((transaction as any).participants, t);
+    console.log(t);
+    await Transaction.recommit(t);
+    expect(await TestRecommit.count({})).toEqual(0);
   }));
 });
