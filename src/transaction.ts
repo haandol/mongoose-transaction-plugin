@@ -12,8 +12,8 @@ const TRANSACTION_KEEP_COMMITTED = (process.env.TRANSACTION_KEEP_COMMITTED === '
 export interface IHistory {
   // collection name
   col: string;
-  // document's object id
-  oid: mongoose.Types.ObjectId;
+  // document's unique id
+  oid: any;
   // insert, update, remove
   op: 'insert' | 'remove' | 'update';
   // update query string.
@@ -48,7 +48,7 @@ export class Transaction extends events.EventEmitter {
 
     const historySchema = new mongoose.Schema({
       col: { type: String, required: true },
-      oid: { type: mongoose.Schema.Types.ObjectId, required: true },
+      oid: { type: mongoose.Schema.Types.Mixed, required: true },
       op: { type: String, required: true },
       query: { type: String, required: true }
     });
