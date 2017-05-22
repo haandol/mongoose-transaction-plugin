@@ -55,7 +55,6 @@ class PreFindOne {
   async recommitTransaction(tModel, t) {
     debug('recommit transaction');
     await Transaction.recommit(t);
-    await tModel.update({_id: t._id}, {state: 'committed'}, {w: 1}).exec();
   }
 
   cancelTransaction(tModel, tid) {

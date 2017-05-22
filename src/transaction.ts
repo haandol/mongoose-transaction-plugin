@@ -134,8 +134,7 @@ export class Transaction extends events.EventEmitter {
         }
         if (history.op === 'remove') {
           return await collection.deleteOne({_id: history.oid}, function(err, res){
-            // ignore document that already remove
-            // res.result.n === 0
+            // ignore document that already remove (case res.result.n === 0)
             if (err) {
               debug(`transaction remove failed ${err.message}`);
               return reject();
@@ -145,21 +144,10 @@ export class Transaction extends events.EventEmitter {
         }
 
         const query = JSON.parse(history.query);
-        if (history.op === 'insert') {
-          delete query['$set']['__t'];
-          if (_.isEmpty(query['$set'])) {
-            delete query['$set'];
-          }
-          return collection.insert(query, function(err, doc) {
-            // skip duplicate error
-            if (err && err.code !== 11000) {
-              debug(`transaction insert failed [${err.message}]`);
-              return reject();
-            }
-            return resolve();
-          });
-        }
+        if (history.op === 'insert' && _.isEmpty(query['$set']))
+          delete query['$set'];
 
+        delete query['$set']['__t'];
         query['$unset'] = query['$unset'] || {};
         query['$unset']['__t'] = '';   
         debug('update recommit query is : ', query);
@@ -171,8 +159,7 @@ export class Transaction extends events.EventEmitter {
             debug(`transaction update failed [${err.message}]`);
             return reject();
           }
-          // ignore document that already update
-          // res.result.n === 0
+          // ignore document that already update or insert (case res.result.n === 0)
           return resolve();
         });
       });
@@ -183,11 +170,23 @@ export class Transaction extends events.EventEmitter {
     const histories = transaction.history;
     if (!histories) return;
 
-    await Bluebird.each(histories, async (history) => {
-      debug('find history collection: ', history.col, ' oid: ', history.oid);
-      await Transaction.commitHistory(history, transaction._id);
-    });
-    debug('transaction recommited!');
+    try {
+      await Bluebird.each(histories, async (history) => {
+        debug('find history collection: ', history.col, ' oid: ', history.oid);
+        await Transaction.commitHistory(history, transaction._id);
+      });
+      debug('transaction recommited!');
+      // TRANSACTION_KEEP_COMMITTED 값에 따라 Transaction Document를 지우거나 갱신한다.
+      if (!TRANSACTION_KEEP_COMMITTED) {
+        await transaction.remove();
+      } else {
+        transaction.state = 'committed';
+        await transaction.save();
+      }
+    } catch (err) {
+      // 하나라도 실패하면 pending 상태로 recommit 처리된다.
+      debug('Fails to save whole transactions but they will be saved', err);
+    }
   }
 
   private static async validate(doc: any): Promise<void> {
@@ -204,15 +203,10 @@ export class Transaction extends events.EventEmitter {
       debug('delta: %o', (<any>participant.doc).$__delta());
       // TODO: 쿼리 제대로 만들기
       let query: string;
-      if (participant.op === 'update') {
+      if (participant.op === 'update' || participant.op === 'insert') {
         query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
       } else if (participant.op === 'remove') {
         query = JSON.stringify({ _id: '' });
-      } else if (participant.op === 'insert') {
-        if (participant.doc._id) {
-          participant.doc._id = new mongoose.Types.ObjectId(participant.doc._id);
-        }
-        query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
       }
       transaction.history.push({
         col: (<any>participant.doc).collection.name,
@@ -265,9 +259,9 @@ export class Transaction extends events.EventEmitter {
   public async insertDoc(doc: mongoose.Document) {
     if (!this.transaction) throw new Error('Could not find any transaction');
 
+    doc['__t'] = this.transaction._id;
     await doc.save();
 
-    doc['__t'] = this.transaction._id;
     this.participants.push({ op: 'insert', doc: doc });
   }
 
