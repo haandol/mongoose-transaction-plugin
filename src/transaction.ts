@@ -180,7 +180,7 @@ export class Transaction extends events.EventEmitter {
       if (!TRANSACTION_KEEP_COMMITTED) {
         await transaction.remove();
       } else {
-        transaction.state = 'committed';
+        transaction.state = 'recommited';
         await transaction.save();
       }
     } catch (err) {
