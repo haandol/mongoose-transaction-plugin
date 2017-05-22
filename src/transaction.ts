@@ -125,35 +125,54 @@ export class Transaction extends events.EventEmitter {
     this.participants = [];
   }
 
-  private static async commitHistory(history: IHistory): Promise<void> {
+  private static async commitHistory(history: IHistory, tid: mongoose.Types.ObjectId): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       return this.connection.db.collection(history.col, async function(err, collection) {
         if (err) {
-          debug('Can not find collection: ', err);
+          debug(`Can not find collection: ${history.col} ${err}`);
           return resolve();
         }
         if (history.op === 'remove') {
-          const res = await collection.deleteOne({_id: history.oid});
-          if (res.deletedCount !== 1) {
-            debug('transaction remove failed');
-          }
-          return resolve();
+          return await collection.deleteOne({_id: history.oid}, function(err, res){
+            // ignore document that already remove
+            // res.result.n === 0
+            if (err) {
+              debug(`transaction remove failed ${err.message}`);
+              return reject();
+            }
+            return resolve();
+          });
         }
+
         const query = JSON.parse(history.query);
         if (history.op === 'insert') {
           delete query['$set']['__t'];
           if (_.isEmpty(query['$set'])) {
             delete query['$set'];
           }
+          return collection.insert(query, function(err, doc) {
+            // skip duplicate error
+            if (err && err.code !== 11000) {
+              debug(`transaction insert failed [${err.message}]`);
+              return reject();
+            }
+            return resolve();
+          });
         }
+
         query['$unset'] = query['$unset'] || {};
-        query['$unset']['__t'] = '';
+        query['$unset']['__t'] = '';   
         debug('update recommit query is : ', query);
         if (query._id) {
           query._id = new mongoose.Types.ObjectId(query._id);
         }
-        return collection.findOneAndUpdate({_id: history.oid}, query, function(err, doc) {
-          debug('updated document ', err, doc);
+        return collection.update({_id: history.oid, _t: tid }, query, { w: 1 }, function(err, res) {
+          if (err) {
+            debug(`transaction update failed [${err.message}]`);
+            return reject();
+          }
+          // ignore document that already update
+          // res.result.n === 0
           return resolve();
         });
       });
@@ -166,7 +185,7 @@ export class Transaction extends events.EventEmitter {
 
     await Bluebird.each(histories, async (history) => {
       debug('find history collection: ', history.col, ' oid: ', history.oid);
-      await Transaction.commitHistory(history);
+      await Transaction.commitHistory(history, transaction._id);
     });
     debug('transaction recommited!');
   }
@@ -190,7 +209,9 @@ export class Transaction extends events.EventEmitter {
       } else if (participant.op === 'remove') {
         query = JSON.stringify({ _id: '' });
       } else if (participant.op === 'insert') {
-        // query = JSON.stringify(participant.doc.toObject());
+        if (participant.doc._id) {
+          participant.doc._id = new mongoose.Types.ObjectId(participant.doc._id);
+        }
         query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
       }
       transaction.history.push({
