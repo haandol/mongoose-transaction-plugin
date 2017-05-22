@@ -28,7 +28,7 @@ async function expectToThrow(fn, expected?: any) {
 const debug = _debug('transaction:test');
 const conn: mongoose.Connection = mongoose.connection;
 
-xdescribe('Transaction-static', () => {
+describe('Transaction-static', () => {
   it('should throw by use of begin() before initialize', spec(async () => {
     let tx;
     tx = new Transaction();
@@ -54,7 +54,7 @@ xdescribe('Transaction-static', () => {
   }));
 });
 
-xdescribe('Transaction-static(turned-off)', () => {
+describe('Transaction-static(turned-off)', () => {
   it('should not allow an unique index to SchemaType', spec(async () => {
     // I have no idea how to override this.
     // @kson //2017-01-23
@@ -64,7 +64,7 @@ xdescribe('Transaction-static(turned-off)', () => {
   }));
 });
 
-xdescribe('Transaction', () => {
+describe('Transaction', () => {
   interface ITestPlayer extends mongoose.Document {
     name: string;
     age: number;
@@ -320,7 +320,7 @@ xdescribe('Transaction', () => {
   }));
 });
 
-xdescribe('Transaction(_id uniqueness)', () => {
+describe('Transaction(_id uniqueness)', () => {
   interface ITestUniqIdx extends mongoose.Document {
     name: string;
   }
@@ -368,7 +368,7 @@ xdescribe('Transaction(_id uniqueness)', () => {
   }));
 });
 
-fdescribe('Transaction(recommit)', () => {
+describe('Transaction(recommit)', () => {
   interface ITestRecommit extends mongoose.Document {
     name: string;
   }
@@ -410,7 +410,7 @@ fdescribe('Transaction(recommit)', () => {
     expect(a.name).toEqual('XXXXX');
   }));
 
-  fit('SHOULD be able to recommit new doc without delta', spec(async () => {
+  it('SHOULD be able to recommit new doc without delta', spec(async () => {
     const transaction = new Transaction();
     const t = new Transaction.getModel();
     (transaction as any).transaction = await t.save();
