@@ -166,7 +166,7 @@ export class Transaction extends events.EventEmitter {
         if (query._id) {
           query._id = new mongoose.Types.ObjectId(query._id);
         }
-        return collection.update({_id: history.oid, _t: tid }, query, { w: 1 }, function(err, res) {
+        return collection.update({_id: history.oid, __t: tid }, query, { w: 1 }, function(err, res) {
           if (err) {
             debug(`transaction update failed [${err.message}]`);
             return reject();
