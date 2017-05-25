@@ -28,7 +28,7 @@ async function expectToThrow(fn, expected?: any) {
 const debug = _debug('transaction:test');
 const conn: mongoose.Connection = mongoose.connection;
 
-describe('Transaction-static', () => {
+xdescribe('Transaction-static', () => {
   it('should throw by use of begin() before initialize', spec(async () => {
     let tx;
     tx = new Transaction();
@@ -54,7 +54,7 @@ describe('Transaction-static', () => {
   }));
 });
 
-describe('Transaction-static(turned-off)', () => {
+xdescribe('Transaction-static(turned-off)', () => {
   it('should not allow an unique index to SchemaType', spec(async () => {
     // I have no idea how to override this.
     // @kson //2017-01-23
@@ -64,7 +64,7 @@ describe('Transaction-static(turned-off)', () => {
   }));
 });
 
-describe('Transaction', () => {
+xdescribe('Transaction', () => {
   interface ITestPlayer extends mongoose.Document {
     name: string;
     age: number;
@@ -93,14 +93,14 @@ describe('Transaction', () => {
     });
   }));
 
-  it('should index state', spec(async () => {
+  xit('should index state', spec(async () => {
     const indexes = Transaction.getModel.schema.indexes();
     const [fields, options] = indexes[0];
     expect(fields.state).toEqual(1);
     expect(options.background).toBeTruthy();
   }));
 
-  it('should ignore calling begin() twice in silent', spec(async () => {
+  xit('should ignore calling begin() twice in silent', spec(async () => {
     await Transaction.scope(async (t) => {
       await t.begin();
       const d = await t.findOne(TestPlayer, {name: 'ekim'});
@@ -108,7 +108,7 @@ describe('Transaction', () => {
     });
   }));
 
-  it('could use write lock', spec(async () => {
+  xit('could use write lock', spec(async () => {
     const options = {
       transaction: true,
       __t: new mongoose.Types.ObjectId()
@@ -122,7 +122,7 @@ describe('Transaction', () => {
     expect(saved['__t']).toBeUndefined();
   }));
 
-  it('should not allow `Model.findOne` with transaction out of a transaction disposer', spec(async () => {
+  xit('should not allow `Model.findOne` with transaction out of a transaction disposer', spec(async () => {
     try {
       await TestPlayer.findOne({ name: 'ekim' }, {}, { transaction: true }).exec();
       expect(true).toEqual(false);
@@ -133,7 +133,7 @@ describe('Transaction', () => {
     }
   }));
 
-  it('could commit two documents in same transaction', spec(async () => {
+  xit('could commit two documents in same transaction', spec(async () => {
     await Transaction.scope(async (tx) => {
       const testPlayer = await tx.findOne(TestPlayer, { name: 'wokim' });
       debug('locking success: %o', testPlayer);
@@ -142,7 +142,7 @@ describe('Transaction', () => {
     expect(1).toBe(1);
   }));
 
-  it('can not save without lock', spec(async () => {
+  xit('can not save without lock', spec(async () => {
     const doc = await TestPlayer.findOne({ name: 'ekim' }, {}).exec();
     expect(doc['__t']).toBeUndefined();
     // console.log('doc is ', doc);
@@ -155,22 +155,23 @@ describe('Transaction', () => {
     }
   }));
 
-  it('duplicate findOne with One Transaction', spec(async () => {
+  xit('duplicate findOne with One Transaction', spec(async () => {
+    console.log('duplicate findOne with One Transaction');
     await Transaction.scope(async (t) => {
       const doc = await t.findOne(TestPlayer, { name: 'ekim' });
       expect(doc['__t']).toBeDefined();
-      // console.log('first doc is ', doc);
+      console.log('first doc is ', doc);
       doc.money += 500;
       const secondTry = await t.findOne(TestPlayer, { name: 'ekim' });
-      // console.log('second doc is ', doc);
+      console.log('second doc is ', doc);
       secondTry.money += 1000;
     });
     const doc = await TestPlayer.findOne({ name: 'ekim' }, {}).exec();
-    // console.log(doc.money);
+    console.log(doc.money);
     expect(doc.money).toBe(1500);
   }));
 
-  it('duplicate findOne with other conditions', spec(async () => {
+  xit('duplicate findOne with other conditions', spec(async () => {
     await Transaction.scope(async (t) => {
       const doc = await t.findOne(TestPlayer, { name: 'ekim' });
       expect(doc['__t']).toBeDefined();
@@ -184,7 +185,7 @@ describe('Transaction', () => {
     expect(doc.money).toBe(1500);
   }));
 
-  it('should save new document without transaction', spec(async () => {
+  xit('should save new document without transaction', spec(async () => {
     const doc = new TestPlayer({ name: 'newbie', age: 1 });
     try {
       await doc.save();
@@ -194,7 +195,7 @@ describe('Transaction', () => {
     }
   }));
 
-  it('should retry when it finds a live transaction', done => {
+  xit('should retry when it finds a live transaction', done => {
     function addMoney(name: string, money: number) {
       return Transaction.scope(t => {
         return t.findOne(TestPlayer, { name: name })
@@ -221,7 +222,7 @@ describe('Transaction', () => {
       });
   });
 
-  it('delete all document', spec(async () => {
+  xit('delete all document', spec(async () => {
     async function removePlayerDoc(name: string) {
       await Transaction.scope(async (t) => {
         const doc = await t.findOne(TestPlayer, { name: name });
@@ -236,7 +237,7 @@ describe('Transaction', () => {
     }
   }));
 
-  it('should throw an error to resolve an expired transaction with no history', spec(async () => {
+  xit('should throw an error to resolve an expired transaction with no history', spec(async () => {
     const oldTransaction = new Transaction.getModel();
     oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
     await TestPlayer.collection.update({ name: 'ekim' }, { $set: { __t: oldTransaction._id } });
@@ -253,7 +254,7 @@ describe('Transaction', () => {
     });
   }));
 
-  it('should cancel expired transaction which is stated as `init`', spec(async () => {
+  xit('should cancel expired transaction which is stated as `init`', spec(async () => {
     const oldTransaction = new Transaction.getModel();
     oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
     oldTransaction.state = 'init';
@@ -269,7 +270,7 @@ describe('Transaction', () => {
     });
   }));
 
-  it('should recommit when it finds an old pending transaction', spec(async () => {
+  xit('should recommit when it finds an old pending transaction', spec(async () => {
     const oldTransaction = new Transaction.getModel();
     oldTransaction._id = ObjectId.get(+new Date('2016-01-01'));
     oldTransaction.state = 'pending';
@@ -293,7 +294,7 @@ describe('Transaction', () => {
     });
   }));
 
-  it('should cancel transaction if the handler throws', spec(async () => {
+  xit('should cancel transaction if the handler throws', spec(async () => {
     let tid;
     try {
       await Transaction.scope(async (t) => {
@@ -320,7 +321,7 @@ describe('Transaction', () => {
   }));
 });
 
-describe('Transaction(_id uniqueness)', () => {
+xdescribe('Transaction(_id uniqueness)', () => {
   interface ITestUniqIdx extends mongoose.Document {
     name: string;
   }
@@ -400,36 +401,37 @@ describe('Transaction(recommit)', () => {
     (transaction as any).transaction = await t.save();
     const tui = new TestRecommit();
     await transaction.insertDoc(tui);
-    tui.name = 'XXXXX';
+    tui.name = 'XXXXX1';
 
     await (Transaction as any).makeHistory((transaction as any).participants, t);
-    console.log(t);
+    //console.log(t);
     await Transaction.recommit(t);
     const a = await TestRecommit.findOne();
-    console.log(a);
-    expect(a.name).toEqual('XXXXX');
+    //console.log(a);
+    expect(a.name).toEqual('XXXXX1');
   }));
 
   it('SHOULD be able to recommit new doc without delta', spec(async () => {
     const transaction = new Transaction();
     const t = new Transaction.getModel();
     (transaction as any).transaction = await t.save();
-    const tui = new TestRecommit({name: 'XXXXX'});
+    const tui = new TestRecommit({name: 'XXXXX2'});
     await transaction.insertDoc(tui);
-    console.log('asdfasdf', await TestRecommit.findOne());
+    //console.log('asdfasdf', await TestRecommit.findOne());
 
     await (Transaction as any).makeHistory((transaction as any).participants, t);
-    console.log(t);
+    //console.log(t);
     await Transaction.recommit(t);
     const a = await TestRecommit.findOne();
-    console.log(a);
-    expect(a.name).toEqual('XXXXX');
+    //console.log(a);
+    expect(a.name).toEqual('XXXXX2');
   }));
 
   it('SHOULD be able to remove doc', spec(async () => {
+    console.log('SHOULD be able to remove doc');
     const before = new TestRecommit();
     await before.save();
-
+    //console.log('1>> ' + await TestRecommit.count({}));
     const transaction = new Transaction();
     const t = new Transaction.getModel();
     (transaction as any).transaction = await t.save();
@@ -437,8 +439,9 @@ describe('Transaction(recommit)', () => {
     await transaction.removeDoc(after);
 
     await (Transaction as any).makeHistory((transaction as any).participants, t);
-    console.log(t);
+    //console.log("t > " + t);
     await Transaction.recommit(t);
+    //console.log('2>> ' + await TestRecommit.count({}));
     expect(await TestRecommit.count({})).toEqual(0);
   }));
 });

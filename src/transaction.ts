@@ -132,6 +132,7 @@ export class Transaction extends events.EventEmitter {
           debug(`Can not find collection: ${history.col} ${err}`);
           return resolve();
         }
+
         if (history.op === 'remove') {
           return await collection.deleteOne({_id: history.oid}, function(err, res){
             // ignore document that already remove (case res.result.n === 0)
@@ -143,17 +144,26 @@ export class Transaction extends events.EventEmitter {
           });
         }
 
-        const query = JSON.parse(history.query);
-        if (history.op === 'insert' && _.isEmpty(query['$set']))
-          delete query['$set'];
+        let query = JSON.parse(history.query);
+        if (history.op === 'update' && JSON.stringify(query) === '{}')
+          return resolve();
 
-        delete query['$set']['__t'];
-        query['$unset'] = query['$unset'] || {};
-        query['$unset']['__t'] = '';   
-        debug('update recommit query is : ', query);
-        if (query._id) {
-          query._id = new mongoose.Types.ObjectId(query._id);
+        if (history.op === 'insert') {
+          query = {};
+          let tempQuery = JSON.parse(history.query);
+          query['$set'] = tempQuery;
         }
+        
+        query['$unset'] = query['$unset'] || {};
+        query['$set'] = query['$set'] || {};
+        if (query['$set']['__t'])
+          delete query['$set']['__t'];
+        if (query['$set']['_id'])
+          delete query['$set']['_id'];
+        
+        query['$unset']['__t'] = '';
+        debug('update recommit query is : ', query);
+
         return collection.update({_id: history.oid, __t: tid }, query, { w: 1 }, function(err, res) {
           if (err) {
             debug(`transaction update failed [${err.message}]`);
@@ -200,14 +210,16 @@ export class Transaction extends events.EventEmitter {
       // TODO: should be fixed mongoose.d.ts
       await Transaction.validate(participant.doc);
 
-      debug('delta: %o', (<any>participant.doc).$__delta());
-      // TODO: 쿼리 제대로 만들기
       let query: string;
-      if (participant.op === 'update' || participant.op === 'insert') {
+      if (participant.op === 'update') {
         query = JSON.stringify(((<any>participant.doc).$__delta() || [null, {}])[1]);
       } else if (participant.op === 'remove') {
         query = JSON.stringify({ _id: '' });
+      } else if (participant.op === 'insert') {
+        query = JSON.stringify(participant.doc);
       }
+      debug(`op : ${participant.op}, query: ${JSON.stringify(query)}`);
+      
       transaction.history.push({
         col: (<any>participant.doc).collection.name,
         oid: participant.doc._id,
@@ -260,17 +272,18 @@ export class Transaction extends events.EventEmitter {
     if (!this.transaction) throw new Error('Could not find any transaction');
 
     doc['__t'] = this.transaction._id;
-    await doc.save();
-
+    await doc.collection.insert(doc);
+    
     this.participants.push({ op: 'insert', doc: doc });
   }
 
   // 삭제할 document를 transaction에 참가시킴
-  public removeDoc(doc: mongoose.Document) {
+  public async removeDoc(doc: mongoose.Document) {
     if (!this.transaction) throw new Error('Could not find any transaction');
 
     const id: mongoose.Types.ObjectId = doc['__t'];
-    if (!id || id.toHexString() !== this.transaction.id) throw new Error('락이 이상함');
+    if (!id || id.toHexString() !== this.transaction.id) throw new Error('Already other locked');
+
     this.participants.push({ op: 'remove', doc: doc });
   }
 
@@ -315,6 +328,7 @@ export class Transaction extends events.EventEmitter {
     if (withSameId) return withSameId.doc as T;
 
     this.participants.push({op: 'update', doc: doc, model: model, cond: cond});
+    
     return doc;
   }
 }
