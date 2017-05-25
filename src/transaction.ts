@@ -155,8 +155,13 @@ export class Transaction extends events.EventEmitter {
               debug(`transaction insert operation failed [${err.message}]`);
               return reject();
             }
-            // ignore document that already update or insert (case res.result.n === 0)
-            return resolve();
+            return collection.update({_id:history.oid, __t:tid}, {$unset:{__t:1}}, {w:1}, function(err, res) {
+              if (err) {
+                debug(`transaction insert operation 2 failed [${err.message}]`);
+               return reject();
+              }
+              return resolve();
+            });
           });
         }
         
