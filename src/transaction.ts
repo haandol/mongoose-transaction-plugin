@@ -145,13 +145,19 @@ export class Transaction extends events.EventEmitter {
         }
 
         let query = JSON.parse(history.query);
-        if (history.op === 'update' && JSON.stringify(query) === '{}')
-          return resolve();
 
         if (history.op === 'insert') {
-          query = {};
-          let tempQuery = JSON.parse(history.query);
-          query['$set'] = tempQuery;
+          delete query['_id'];
+          delete query['__t'];
+          console.log(JSON.stringify(query));
+          return collection.update({_id: history.oid, __t: tid }, query, { w: 1 }, function(err, res) {
+            if (err) {
+              debug(`transaction insert operation failed [${err.message}]`);
+              return reject();
+            }
+            // ignore document that already update or insert (case res.result.n === 0)
+            return resolve();
+          });
         }
         
         query['$unset'] = query['$unset'] || {};
@@ -161,6 +167,9 @@ export class Transaction extends events.EventEmitter {
         if (query['$set']['_id'])
           delete query['$set']['_id'];
         
+        if (Object.keys(query['$set']).length === 0)
+          delete query['$set'];
+
         query['$unset']['__t'] = '';
         debug('update recommit query is : ', query);
 

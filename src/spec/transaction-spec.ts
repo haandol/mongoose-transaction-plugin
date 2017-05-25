@@ -423,7 +423,7 @@ describe('Transaction(recommit)', () => {
     //console.log(t);
     await Transaction.recommit(t);
     const a = await TestRecommit.findOne();
-    //console.log(a);
+    console.log(a);
     expect(a.name).toEqual('XXXXX2');
   }));
 
